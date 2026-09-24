@@ -10,6 +10,12 @@
   --accent-soft: #e6f0fb;
   /* Chart series that aren't status — never red/amber/green, which only ever mean show status. */
   --neutral-series: #8d96a3;
+  /* How a trip happens on the network map (identity, not status) — validated as a set for
+     all-pairs colorblind separation. Grouped by whether the ride is shared, not by who's
+     driving: a solo trip is still "by car" whether a guardian or the rider themself drives. */
+  --mode-carpool: #2a78d6;
+  --mode-solo: #eb6834;
+  --mode-transit: #1baf7a;
 
   /* One status language, used identically on every screen (calendar chip, KPI tile, badge, callout). */
   --green: #0c8a0c;

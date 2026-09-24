@@ -5,7 +5,7 @@ import { useApp, type CalendarFilter } from "../AppState";
 import SolveProgress from "../components/SolveProgress";
 import { StatusBadge } from "../components/Status";
 import { formatDate, formatMonth, isoDate, parseDate, pct } from "../format";
-import type { Change, Kpis, ScheduleView, ShowSummary, Status } from "../types";
+import type { Change, Facility, Kpis, ScheduleView, ShowSummary, Status } from "../types";
 
 type Filter = CalendarFilter;
 const URGENT_DAYS = 7;
@@ -123,17 +123,21 @@ function UpdateBar({ reason, onUpdated }: { reason: string; onUpdated: (changes:
   );
 }
 
-function KpiTile({ label, value, status, sub, active, onClick }: {
-  label: string; value: string; status: Status; sub?: ReactNode; active: boolean; onClick: () => void;
+function KpiTile({ label, value, status, sub, active = false, onClick }: {
+  label: string; value: string; status?: Status; sub?: ReactNode; active?: boolean; onClick?: () => void;
 }) {
-  return (
-    <button className={`kpi-tile ${status} ${active ? "active" : ""}`} onClick={onClick}>
+  const cls = `kpi-tile ${status ?? "neutral"} ${active ? "active" : ""}`;
+  const inner = (
+    <>
       <span className="kpi-label">{label}</span>
       <span className="kpi-value">{value}</span>
-      <StatusBadge status={status} compact />
+      {status && <StatusBadge status={status} compact />}
       {sub && <span className="kpi-sub">{sub}</span>}
-    </button>
+    </>
   );
+  // A tile with nothing to click (e.g. a plain cost figure) renders as a static card, not a button
+  // that looks interactive but does nothing.
+  return onClick ? <button className={cls} onClick={onClick}>{inner}</button> : <div className={cls}>{inner}</div>;
 }
 
 function KpiStrip({ kpis, shows, filter, setFilter, onWeek }: {
@@ -160,6 +164,8 @@ function KpiStrip({ kpis, shows, filter, setFilter, onWeek }: {
       <KpiTile label="Backup coverage" value={pct(kpis.backup_coverage)} status={backupStatus} active={filter === "amber"}
                onClick={() => toggle("amber")}
                sub={amber ? `${amber} show${amber !== 1 ? "s" : ""} thin on backups · click to show them` : "every show has 3 backups incl. a pianist"} />
+      <KpiTile label="Network cost" value={`~$${kpis.cost_per_show_dollars.toFixed(0)}/show`}
+               sub={`$${Math.round(kpis.estimated_cost_dollars).toLocaleString()} total · ${kpis.total_car_km.toFixed(0)} car-km across all ${shows.length} upcoming shows · rough $/km estimate`} />
     </div>
   );
 }
@@ -199,7 +205,7 @@ function Urgent({ shows, onOpen }: { shows: ShowSummary[]; onOpen: (s: ShowSumma
 
 function Roadmap({ shows, onOpen }: { shows: ShowSummary[]; onOpen: (s: ShowSummary) => void }) {
   const today = isoDate(new Date());
-  const next = shows.filter((s) => s.date >= today).slice(0, 8);
+  const next = shows.filter((s) => s.date >= today).slice(0, 5);
   if (next.length === 0) return null;
   return (
     <div className="roadmap">
@@ -215,6 +221,57 @@ function Roadmap({ shows, onOpen }: { shows: ShowSummary[]; onOpen: (s: ShowSumm
           </button>
         ))}
       </div>
+    </div>
+  );
+}
+
+/** The same show + status data as the month calendar, pivoted facility-as-row instead of
+ *  date-as-cell — the coverage-across-the-network framing a logistics control room uses instead
+ *  of a personal calendar grid. */
+function FacilityGantt({ month, shows, facilities, onOpen }: {
+  month: string; shows: ShowSummary[]; facilities: Facility[]; onOpen: (s: ShowSummary) => void;
+}) {
+  const first = parseDate(`${month}-01`);
+  const daysInMonth = new Date(first.getFullYear(), first.getMonth() + 1, 0).getDate();
+  const days = Array.from({ length: daysInMonth }, (_, i) => i + 1);
+  const today = isoDate(new Date());
+
+  const byCell = new Map<string, ShowSummary>();
+  shows.forEach((s) => byCell.set(`${s.facility_id}|${s.date}`, s));
+  const sorted = [...facilities].sort((a, b) => a.display_name.localeCompare(b.display_name));
+
+  return (
+    <div className="gantt-scroll">
+      <table className="gantt">
+        <thead>
+          <tr>
+            <th className="gantt-corner">Location</th>
+            {days.map((d) => {
+              const date = `${month}-${String(d).padStart(2, "0")}`;
+              return <th key={d} className={date === today ? "today" : ""}>{d}</th>;
+            })}
+          </tr>
+        </thead>
+        <tbody>
+          {sorted.map((f) => (
+            <tr key={f.facility_id}>
+              <th className="gantt-row-label">{f.display_name}</th>
+              {days.map((d) => {
+                const date = `${month}-${String(d).padStart(2, "0")}`;
+                const show = byCell.get(`${f.facility_id}|${date}`);
+                return (
+                  <td key={d} className={date === today ? "today" : ""}>
+                    {show && (
+                      <button className={`gantt-cell ${show.status}`} onClick={() => onOpen(show)}
+                              title={`${f.display_name} · ${show.start_time} · ${show.reasons.join("; ") || "On track"}`} />
+                    )}
+                  </td>
+                );
+              })}
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   );
 }
@@ -277,16 +334,20 @@ function AtAGlance({ view }: { view: ScheduleView }) {
         <div><span className="kpi-label">Repeat visits</span><strong>{pct(k.rotation_repeat_rate)}</strong>
           <span className="small muted">of assignments go back to a location they've played recently</span></div>
       </div>
-      <h3>Musician-slots needed vs. marked available, by week</h3>
+      <h3>Musician-show slots needed vs. marked available, by week</h3>
+      <p className="small muted">
+        Counted per show, not per person — one musician saying yes to 3 shows in a week counts as 3,
+        so "available" isn't capped at the roster size and can run well past it in a busy week.
+      </p>
       <ResponsiveContainer width="100%" height={260}>
         <BarChart data={view.weekly_capacity}>
           <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
           <XAxis dataKey="week" tick={{ fontSize: 11 }} tickFormatter={(w: string) => formatDate(w.slice(0, 10))} />
           <YAxis allowDecimals={false} />
-          <Tooltip />
+          <Tooltip formatter={(value, name) => [`${value} slots`, name]} />
           <Legend />
-          <Bar dataKey="needed" name="Needed" fill="#2a78d6" radius={[4, 4, 0, 0]} />
-          <Bar dataKey="available" name="Marked available" fill="var(--neutral-series)" radius={[4, 4, 0, 0]} />
+          <Bar dataKey="needed" name="Needed (slots)" fill="#2a78d6" radius={[4, 4, 0, 0]} />
+          <Bar dataKey="available" name="Marked available (slots)" fill="var(--neutral-series)" radius={[4, 4, 0, 0]} />
         </BarChart>
       </ResponsiveContainer>
     </details>
@@ -297,11 +358,14 @@ export default function ControlTower() {
   const { version, openPanel, calendarFilter: filter, setCalendarFilter: setFilter,
           calendarMonth: pickedMonth, setCalendarMonth: setMonth } = useApp();
   const [view, setView] = useState<ScheduleView | null>(null);
+  const [facilities, setFacilities] = useState<Facility[]>([]);
+  const [calView, setCalView] = useState<"calendar" | "facility">("calendar");
   const [error, setError] = useState<string | null>(null);
   const [justResolved, setJustResolved] = useState<Change[] | null>(null);
 
   useEffect(() => {
     api<ScheduleView>("/api/schedule").then(setView).catch((e) => setError(e.message));
+    api<Facility[]>("/api/facilities").then(setFacilities);
   }, [version]);
 
   const months = useMemo(() => [...new Set((view?.shows ?? []).map((s) => s.date.slice(0, 7)))].sort(), [view]);
@@ -332,9 +396,15 @@ export default function ControlTower() {
           <h2>{formatMonth(month)}</h2>
           <button className="button secondary" disabled={monthIdx >= months.length - 1} onClick={() => setMonth(months[monthIdx + 1])}>›</button>
         </div>
+        <div className="view-toggle" role="tablist">
+          <button role="tab" aria-selected={calView === "calendar"} className={calView === "calendar" ? "active" : ""}
+                  onClick={() => setCalView("calendar")}>Calendar</button>
+          <button role="tab" aria-selected={calView === "facility"} className={calView === "facility" ? "active" : ""}
+                  onClick={() => setCalView("facility")}>Facility view</button>
+        </div>
         <div className="legend">
           <StatusBadge status="green" /> <StatusBadge status="amber" /> <StatusBadge status="red" />
-          {filter !== "all" && (
+          {filter !== "all" && calView === "calendar" && (
             <span className="filter-note">
               Showing {filter === "red" ? "not fully staffed" : filter === "amber" ? "thin on backups" : `the next ${URGENT_DAYS} days`} ·{" "}
               <button className="link-button" onClick={() => setFilter("all")}>Show all shows</button>
@@ -342,8 +412,10 @@ export default function ControlTower() {
           )}
         </div>
       </div>
-      <Calendar month={month} shows={view.shows} filter={filter} onOpen={open}
-                onAdd={(date) => openPanel({ kind: "addShow", date })} />
+      {calView === "calendar"
+        ? <Calendar month={month} shows={view.shows} filter={filter} onOpen={open}
+                    onAdd={(date) => openPanel({ kind: "addShow", date })} />
+        : <FacilityGantt month={month} shows={view.shows} facilities={facilities} onOpen={open} />}
 
       <AtAGlance view={view} />
     </div>

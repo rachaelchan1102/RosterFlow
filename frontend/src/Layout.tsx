@@ -92,7 +92,8 @@ export default function Layout() {
             Calendar{needsUpdate && <span className="nav-dot" aria-label="schedule needs updating" />}
           </NavLink>
           <NavLink to="/cancel">Cancellations</NavLink>
-          <NavLink to="/tools">Roster</NavLink>
+          <NavLink to="/tools">Capacity</NavLink>
+          <NavLink to="/network">Network</NavLink>
           <NavLink to="/scenario">Scenario planner</NavLink>
         </nav>
         <button className="quickfind-trigger" onClick={() => setFindOpen(true)}>

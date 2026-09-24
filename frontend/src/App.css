@@ -185,7 +185,7 @@ button.update-card-title:hover { color: var(--accent); }
 .change-pill.removed { background: var(--card); color: var(--text-secondary); }
 
 /* ---------- KPI strip ---------- */
-.kpi-strip { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 24px; }
+.kpi-strip { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 24px; }
 .kpi-tile {
   display: grid;
   grid-template-columns: 1fr auto;
@@ -204,6 +204,8 @@ button.update-card-title:hover { color: var(--accent); }
 .kpi-tile.green { border-top-color: var(--green); }
 .kpi-tile.amber { border-top-color: var(--amber-mark); }
 .kpi-tile.red { border-top-color: var(--red); }
+.kpi-tile.neutral { border-top-color: var(--border); cursor: default; }
+div.kpi-tile { text-align: left; }
 .kpi-label { grid-column: 1 / -1; font-size: 0.75rem; font-weight: 650; text-transform: uppercase;
              letter-spacing: 0.04em; color: var(--text-secondary); }
 .kpi-value { font-size: 2.4rem; font-weight: 750; letter-spacing: -0.03em; line-height: 1.1; }
@@ -785,3 +787,123 @@ kbd {
   .tool-tabs { grid-template-columns: 1fr; }
   .urgent-item { grid-template-columns: auto 1fr; }
 }
+
+/* ================================================================ supply-chain reframe (UI_Supply_Chain.md) */
+
+/* ---------- utilization bars (compact, table-cell) ---------- */
+.util-bar { display: flex; align-items: center; gap: 8px; min-width: 110px; }
+.util-bar-track { flex: 1; height: 8px; border-radius: 999px; background: var(--card); overflow: hidden; }
+.util-bar-fill { height: 100%; border-radius: 999px; }
+.util-bar-fill.green { background: var(--green); }
+.util-bar-fill.amber { background: var(--amber-mark); }
+.util-bar-fill.red { background: var(--red); }
+.util-bar-pct { font-size: 0.78rem; color: var(--text-secondary); width: 32px; text-align: right; flex-shrink: 0; }
+.util-list { display: flex; flex-direction: column; gap: 12px; }
+
+/* ---------- calendar / facility-Gantt view toggle ---------- */
+.view-toggle { display: flex; gap: 2px; background: var(--card); border-radius: 8px; padding: 2px; }
+.view-toggle button {
+  background: none;
+  border: none;
+  padding: 5px 12px;
+  border-radius: 6px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+.view-toggle button.active { background: var(--surface); color: var(--text-primary); box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08); }
+.calendar-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px 20px; margin: 24px 0 12px; }
+
+/* ---------- facility Gantt / timeline ---------- */
+.gantt-scroll { overflow-x: auto; border: 1px solid var(--border); border-radius: 10px; }
+.gantt { border-collapse: collapse; font-size: 0.78rem; }
+.gantt th, .gantt td { padding: 0; text-align: center; }
+.gantt-corner {
+  position: sticky;
+  left: 0;
+  z-index: 2;
+  background: var(--surface);
+  min-width: 130px;
+  text-align: left !important;
+  padding: 8px 10px !important;
+  border-right: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--text-muted);
+}
+.gantt thead th:not(.gantt-corner) { padding: 6px 3px !important; color: var(--text-muted); border-bottom: 1px solid var(--border); min-width: 26px; }
+.gantt thead th.today { color: var(--accent); font-weight: 700; }
+.gantt-row-label {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  background: var(--surface);
+  text-align: left !important;
+  padding: 8px 10px !important;
+  border-right: 1px solid var(--border);
+  border-bottom: 1px solid var(--card);
+  font-weight: 600;
+  white-space: nowrap;
+}
+.gantt tbody td { border-bottom: 1px solid var(--card); padding: 3px !important; }
+.gantt tbody td.today { background: var(--accent-soft); }
+.gantt-cell {
+  width: 18px;
+  height: 18px;
+  border-radius: 4px;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+}
+.gantt-cell.green { background: var(--green); }
+.gantt-cell.amber { background: var(--amber-mark); }
+.gantt-cell.red { background: var(--red); }
+.gantt-cell:hover { outline: 2px solid var(--text-primary); outline-offset: 1px; }
+
+/* ---------- network page ---------- */
+.network-head { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 12px; }
+.network-head h2 { font-size: 1.05rem; }
+.network-map { position: relative; height: 420px; border-radius: 10px; overflow: hidden; border: 1px solid var(--border); }
+.network-map .leaflet-container { background: var(--page); font: inherit; }
+.network-legend {
+  position: absolute;
+  z-index: 500;
+  bottom: 10px;
+  left: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  background: rgba(255, 255, 255, 0.92);
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-size: 0.78rem;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+.network-legend-group { display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: center; }
+.network-legend-item { display: flex; align-items: center; gap: 5px; color: var(--text-secondary); }
+.network-legend-swatch { width: 14px; height: 3px; border-radius: 2px; display: inline-block; }
+.network-pins { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+.network-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; align-items: start; margin-top: 20px; }
+.network-grid .tool-panel { margin: 0; }
+.network-grid h2 { font-size: 1.05rem; margin-bottom: 4px; }
+.subtitle.small { font-size: 0.85rem; margin-bottom: 14px; }
+
+/* ---------- flow diagram ---------- */
+.flow-diagram-head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; margin-bottom: 6px; }
+.flow-label { font-size: 11px; fill: var(--text-secondary); font-family: inherit; }
+.flow-table td, .flow-table th { padding: 6px 10px; }
+
+@media (max-width: 900px) {
+  .network-grid { grid-template-columns: 1fr; }
+}
+@media (max-width: 800px) {
+  .kpi-strip { grid-template-columns: repeat(2, 1fr); }
+}
+
+/* ---------- network page: flow filter ---------- */
+.flow-filter { margin-bottom: 6px; }
+.flow-filter label { display: flex; align-items: center; gap: 8px; font-size: 0.85rem; color: var(--text-secondary); }
+.flow-filter select { flex: 1; }

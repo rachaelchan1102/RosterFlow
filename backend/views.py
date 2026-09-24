@@ -34,6 +34,11 @@ def show_label(ws: Workspace, show_id: str) -> str:
     return f"{_facility_name(ws, show.facility_id)} on {pd.Timestamp(show.date):%a %b %-d}"
 
 
+# Rough $/km estimate (gas + wear), not real fuel-price data — good enough to make "network cost"
+# a headline number instead of a buried car-km stat. Easy to swap for a real rate later.
+COST_PER_KM = 0.55
+
+
 def schedule_kpis(ws: Workspace, schedule: Schedule) -> dict:
     ids = ws.upcoming_show_ids()
     flags = compute_show_flags(ws.data, schedule.assignments, ids)
@@ -41,6 +46,8 @@ def schedule_kpis(ws: Workspace, schedule: Schedule) -> dict:
     cars, solo = build_carpools(ws.data, schedule.assignments)
     k = compute_kpis(ws.data, AssignmentResult("DRAFT", None, schedule.assignments, flags),
                      cars, solo, BackupResult(schedule.backups, backup_flags))
+    n_shows = len(ids)
+    n_trips = int((schedule.assignments.show_id.isin(ids)).sum())
     return dict(
         fill_rate=k.fill_rate, backup_coverage=k.backup_coverage,
         capacity_utilization_mean=k.capacity_utilization_mean,
@@ -48,6 +55,9 @@ def schedule_kpis(ws: Workspace, schedule: Schedule) -> dict:
         total_cars=k.total_cars, total_car_km=k.total_car_km, guardian_car_km=k.guardian_car_km,
         peer_car_km=k.peer_car_km, car_km_savings=k.car_km_savings,
         solo_transit_count=k.solo_transit_count, rotation_repeat_rate=k.rotation_repeat_rate,
+        estimated_cost_dollars=k.total_car_km * COST_PER_KM,
+        cost_per_show_dollars=(k.total_car_km * COST_PER_KM / n_shows) if n_shows else 0.0,
+        cost_per_trip_dollars=(k.total_car_km * COST_PER_KM / n_trips) if n_trips else 0.0,
     )
 
 
@@ -303,6 +313,130 @@ def availability_heatmap(ws: Workspace) -> dict:
                               show_count=int(show_counts.get(key, 0)),
                               free_count=sum(1 for r in rows if r["hours"][i] > 0)))
     return dict(dates=date_rows, rows=rows)
+
+
+def first_upcoming_date(ws: Workspace) -> str | None:
+    ids = ws.upcoming_show_ids()
+    if not ids:
+        return None
+    return str(ws.data.shows.loc[ids, "date"].min())
+
+
+def network_view(ws: Workspace, date: str) -> dict:
+    """One date's worth of the network: a pin per location with a show that day, and a line for
+    every musician's trip from home to that location, grouped by car (or "solo" / "guardian") so
+    a carpool cluster reads as one group at a glance."""
+    draft = ws.require_draft()
+    data = ws.data
+    ids = ws.upcoming_show_ids()
+    show_ids = [s for s in ids if str(data.shows.at[s, "date"]) == date]
+
+    facilities: list[dict] = []
+    routes: list[dict] = []
+    if show_ids:
+        flags = compute_show_flags(data, draft.assignments, show_ids).set_index("show_id")
+        backup_flags = backup_show_flags(draft.backups, show_ids).set_index("show_id")
+        for show_id in show_ids:
+            show = data.shows.loc[show_id]
+            fac = data.facilities.loc[show.facility_id]
+            f, b = flags.loc[show_id], backup_flags.loc[show_id]
+            facilities.append(dict(
+                show_id=show_id, facility_id=show.facility_id, name=str(fac.display_name),
+                lat=float(fac.lat), lng=float(fac.lng), start_time=str(show.start_time),
+                status=_status(f, b), musician_count=int(f.musician_count),
+                target_musicians=int(fac.target_musicians),
+            ))
+
+            roster_df = draft.assignments[draft.assignments.show_id == show_id]
+            cars, solo = build_carpools(data, roster_df)
+            for i, car in enumerate(cars):
+                group = f"{show_id}-car{i}"
+                mode = "guardian" if car.driver_id is None else "car"
+                for mid in car.musician_ids:
+                    m = data.musicians.loc[mid]
+                    routes.append(dict(
+                        musician_id=mid, name=musician_name(ws, mid), show_id=show_id,
+                        from_lat=float(m.home_lat), from_lng=float(m.home_lng),
+                        to_lat=float(fac.lat), to_lng=float(fac.lng),
+                        group=group, mode=mode, is_driver=(mid == car.driver_id),
+                    ))
+            for s in solo:
+                m = data.musicians.loc[s.musician_id]
+                routes.append(dict(
+                    musician_id=s.musician_id, name=musician_name(ws, s.musician_id), show_id=show_id,
+                    from_lat=float(m.home_lat), from_lng=float(m.home_lng),
+                    to_lat=float(fac.lat), to_lng=float(fac.lng),
+                    group=f"{show_id}-solo-{s.musician_id}", mode="transit", is_driver=False,
+                ))
+    return dict(date=date, facilities=facilities, routes=routes)
+
+
+def flow_view(ws: Workspace, show_id: str | None = None) -> dict:
+    """Musician-trips flowing into locations, aggregated by home region — over every upcoming
+    show by default, or narrowed to one show. Each link also carries how far those trips are,
+    since "who's coming from where" is only half the picture without "how far they're coming"."""
+    draft = ws.require_draft()
+    data = ws.data
+    ids = ws.upcoming_show_ids()
+    if show_id is not None:
+        ids = [show_id] if show_id in ids else []
+    a = draft.assignments[draft.assignments.show_id.isin(ids)]
+    if a.empty:
+        return dict(nodes=[], links=[])
+    a = a.merge(data.musicians[["home_region"]], left_on="musician_id", right_index=True)
+    a = a.merge(data.shows[["facility_id"]], left_on="show_id", right_index=True)
+    a = a.merge(data.facilities[["display_name"]], left_on="facility_id", right_index=True)
+    a = a.assign(distance_km=[data.distance_to_facility(m, f) for m, f in zip(a.musician_id, a.facility_id)])
+
+    grouped = a.groupby(["home_region", "display_name"])
+    counts = grouped.size().reset_index(name="count")
+    distances = grouped["distance_km"].agg(avg_km="mean", total_km="sum").reset_index()
+    links_df = counts.merge(distances, on=["home_region", "display_name"])
+
+    regions = sorted(links_df.home_region.unique())
+    facilities = sorted(links_df.display_name.unique())
+    nodes = ([dict(id=f"region:{r}", label=r, kind="region") for r in regions]
+             + [dict(id=f"facility:{f}", label=f, kind="facility") for f in facilities])
+    links = [dict(source=f"region:{r.home_region}", target=f"facility:{r.display_name}", value=int(r.count),
+                 avg_km=round(float(r.avg_km), 1), total_km=round(float(r.total_km), 1))
+             for r in links_df.itertuples()]
+    return dict(nodes=nodes, links=links)
+
+
+def utilization_view(ws: Workspace) -> dict:
+    """Capacity usage as two ranked lists, the way a fleet/warehouse dashboard would show it:
+    each musician's share of their monthly cap used, and each location's average headcount
+    against its target across its upcoming shows."""
+    draft = ws.require_draft()
+    data = ws.data
+    ids = ws.upcoming_show_ids()
+    a = draft.assignments[draft.assignments.show_id.isin(ids)]
+    months = pd.to_datetime(data.shows.loc[ids, "date"]).dt.to_period("M").nunique() if ids else 0
+    months = max(months, 1)
+    played = a.groupby("musician_id").size()
+
+    musicians = []
+    for m in data.musicians.itertuples():
+        n = int(played.get(m.musician_id, 0))
+        cap = int(m.max_shows_per_month) * months
+        musicians.append(dict(musician_id=m.musician_id, name=str(m.display_name), played=n, capacity=cap,
+                              utilization=(n / cap if cap else 0.0)))
+    musicians.sort(key=lambda r: -r["utilization"])
+
+    facilities = []
+    if ids:
+        flags = compute_show_flags(data, a, ids).set_index("show_id")
+        for f in data.facilities.itertuples():
+            here = [s for s in ids if data.shows.at[s, "facility_id"] == f.Index]
+            if not here:
+                continue
+            avg = sum(int(flags.at[s, "musician_count"]) for s in here) / len(here)
+            target = int(f.target_musicians)
+            facilities.append(dict(facility_id=f.Index, name=str(f.display_name), shows=len(here),
+                                   avg_musicians=avg, target_musicians=target,
+                                   utilization=(avg / target if target else 0.0)))
+        facilities.sort(key=lambda r: -r["utilization"])
+    return dict(musicians=musicians, facilities=facilities)
 
 
 def weekly_capacity(ws: Workspace) -> list[dict]:

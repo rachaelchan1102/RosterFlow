@@ -33,3 +33,22 @@ export function CoverageBar({ value, target, label, status }: { value: number; t
     </div>
   );
 }
+
+/** Same red/amber/green language as everything else in the app: under 80% of capacity is fine,
+ *  80–100% is worth watching, over 100% means the cap itself is the thing being exceeded. */
+export function utilizationStatus(ratio: number): Status {
+  return ratio > 1 ? "red" : ratio >= 0.8 ? "amber" : "green";
+}
+
+/** Compact horizontal bar for a table cell — a track, a fill and a percentage, nothing else. */
+export function UtilBar({ ratio, title }: { ratio: number; title?: string }) {
+  const status = utilizationStatus(ratio);
+  return (
+    <div className="util-bar" title={title}>
+      <div className="util-bar-track">
+        <div className={`util-bar-fill ${status}`} style={{ width: `${Math.min(ratio, 1) * 100}%` }} />
+      </div>
+      <span className="util-bar-pct">{Math.round(ratio * 100)}%</span>
+    </div>
+  );
+}

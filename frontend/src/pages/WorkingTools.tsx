@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
 import { api } from "../api";
 import { useApp } from "../AppState";
-import { StatusBadge } from "../components/Status";
+import { StatusBadge, UtilBar } from "../components/Status";
 import { formatDate, formatMonth } from "../format";
-import type { Musician, ScheduleView, ShowSummary } from "../types";
+import type { Musician, ScheduleView, ShowSummary, UtilizationView } from "../types";
 
 const PAGE_SIZE = 20;
 type Tab = "musicians" | "availability" | "shows";
@@ -29,6 +29,7 @@ function useSort<T>(rows: T[], initial: keyof T) {
 function MusiciansTab() {
   const { version, refresh, openPanel, showToast, confirm, removeWithUndo, pendingRemoval } = useApp();
   const [musicians, setMusicians] = useState<Musician[]>([]);
+  const [utilization, setUtilization] = useState<Map<string, UtilizationView["musicians"][number]>>(new Map());
   const [query, setQuery] = useState("");
   const [page, setPage] = useState(0);
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -37,6 +38,7 @@ function MusiciansTab() {
 
   useEffect(() => {
     api<Musician[]>("/api/musicians").then(setMusicians);
+    api<UtilizationView>("/api/utilization").then((u) => setUtilization(new Map(u.musicians.map((m) => [m.musician_id, m]))));
   }, [version]);
 
   const filtered = useMemo(() => {
@@ -113,7 +115,7 @@ function MusiciansTab() {
           <tr>
             <th><input type="checkbox" checked={allOnPage} onChange={togglePage} aria-label="Select all on this page" /></th>
             {header("display_name", "Name")}{header("instrument", "Instrument")}{header("age", "Age")}
-            {header("home_region", "Region")}{header("max_shows_per_month", "Cap / month")}<th />
+            {header("home_region", "Region")}{header("max_shows_per_month", "Cap / month")}<th>Utilization</th><th />
           </tr>
         </thead>
         <tbody>
@@ -128,6 +130,13 @@ function MusiciansTab() {
               <td>{m.age}{m.age < 17 && <span className="tag" title="Needs a guardian to drive">guardian</span>}</td>
               <td>{m.home_region}</td>
               <td>{m.max_shows_per_month}</td>
+              <td>
+                {(() => {
+                  const u = utilization.get(m.musician_id);
+                  return u ? <UtilBar ratio={u.utilization} title={`${u.played} of ${u.capacity} shows this period`} />
+                           : <span className="muted small">—</span>;
+                })()}
+              </td>
               <td className="icon-actions">
                 <button title="Edit details" aria-label={`Edit ${m.display_name}'s details`}
                         onClick={() => openPanel({ kind: "musicianForm", id: m.musician_id })}>✎</button>
@@ -281,8 +290,8 @@ export default function WorkingTools() {
   const [tab, setTab] = useState<Tab>("musicians");
   return (
     <div>
-      <h1>Roster</h1>
-      <p className="subtitle">Musicians, who's usually free when, and upcoming shows. After changes, update the schedule from the calendar.</p>
+      <h1>Capacity pool</h1>
+      <p className="subtitle">The musician resource pool, their utilization against monthly caps, and upcoming shows. After changes, update the schedule from the calendar.</p>
       <div className="tabs" role="tablist">
         {([["musicians", "Musicians"], ["availability", "Availability"], ["shows", "Shows"]] as const).map(([id, label]) => (
           <button key={id} role="tab" aria-selected={tab === id} className={tab === id ? "active" : ""} onClick={() => setTab(id)}>

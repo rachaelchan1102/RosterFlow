@@ -175,6 +175,28 @@ def get_availability_heatmap(ws: Workspace = Depends(get_workspace)):
         return views.availability_heatmap(ws)
 
 
+@app.get("/api/network")
+def get_network(date: str | None = None, ws: Workspace = Depends(get_workspace)):
+    """One day's routes for the network map. Defaults to the earliest upcoming show's date."""
+    with using(ws):
+        d = date or views.first_upcoming_date(ws)
+        if d is None:
+            return {"date": None, "facilities": [], "routes": []}
+        return views.network_view(ws, d)
+
+
+@app.get("/api/flow")
+def get_flow(show_id: str | None = None, ws: Workspace = Depends(get_workspace)):
+    with using(ws):
+        return views.flow_view(ws, show_id)
+
+
+@app.get("/api/utilization")
+def get_utilization(ws: Workspace = Depends(get_workspace)):
+    with using(ws):
+        return views.utilization_view(ws)
+
+
 # ---------------------------------------------------------------------------
 # Cancellations
 # ---------------------------------------------------------------------------

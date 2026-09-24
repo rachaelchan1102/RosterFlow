@@ -12,6 +12,9 @@ export interface Kpis {
   car_km_savings: number;
   solo_transit_count: number;
   rotation_repeat_rate: number;
+  estimated_cost_dollars: number;
+  cost_per_show_dollars: number;
+  cost_per_trip_dollars: number;
 }
 
 export interface Change {
@@ -149,8 +152,83 @@ export interface Facility {
   facility_id: string;
   display_name: string;
   region: string;
+  lat: number;
+  lng: number;
   show_duration_min: number;
   preferred_slot: string;
+  target_musicians: number;
+}
+
+export interface NetworkFacility {
+  show_id: string;
+  facility_id: string;
+  name: string;
+  lat: number;
+  lng: number;
+  start_time: string;
+  status: Status;
+  musician_count: number;
+  target_musicians: number;
+}
+
+export interface NetworkRoute {
+  musician_id: string;
+  name: string;
+  show_id: string;
+  from_lat: number;
+  from_lng: number;
+  to_lat: number;
+  to_lng: number;
+  group: string;
+  mode: "car" | "guardian" | "transit";
+  is_driver: boolean;
+}
+
+export interface NetworkView {
+  date: string | null;
+  facilities: NetworkFacility[];
+  routes: NetworkRoute[];
+}
+
+export interface FlowNode {
+  id: string;
+  label: string;
+  kind: "region" | "facility";
+}
+
+export interface FlowLink {
+  source: string;
+  target: string;
+  value: number;
+  avg_km: number;
+  total_km: number;
+}
+
+export interface FlowView {
+  nodes: FlowNode[];
+  links: FlowLink[];
+}
+
+export interface MusicianUtilization {
+  musician_id: string;
+  name: string;
+  played: number;
+  capacity: number;
+  utilization: number;
+}
+
+export interface FacilityUtilization {
+  facility_id: string;
+  name: string;
+  shows: number;
+  avg_musicians: number;
+  target_musicians: number;
+  utilization: number;
+}
+
+export interface UtilizationView {
+  musicians: MusicianUtilization[];
+  facilities: FacilityUtilization[];
 }
 
 export interface Feasibility {
