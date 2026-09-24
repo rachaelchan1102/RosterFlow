@@ -1,105 +1,123 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { Bar, BarChart, CartesianGrid, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { api } from "../api";
-import { useApp } from "../AppState";
+import { useApp, type CalendarFilter } from "../AppState";
+import SolveProgress from "../components/SolveProgress";
 import { StatusBadge } from "../components/Status";
 import { formatDate, formatMonth, isoDate, parseDate, pct } from "../format";
 import type { Change, Kpis, ScheduleView, ShowSummary, Status } from "../types";
 
-type Filter = "all" | "attention" | "red";
+type Filter = CalendarFilter;
+const URGENT_DAYS = 7;
+const UPDATE_STEPS = [
+  "Checking who's available for each show",
+  "Matching musicians to shows",
+  "Balancing workload, travel and rotation",
+  "Ranking backups and planning carpools",
+];
 const WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+
+/** The next URGENT_DAYS days, as ISO date bounds (today inclusive). */
+function weekWindow(): { from: string; to: string } {
+  const today = parseDate(isoDate(new Date()));
+  return { from: isoDate(today), to: isoDate(new Date(today.getTime() + URGENT_DAYS * 86_400_000)) };
+}
 
 function matches(show: ShowSummary, filter: Filter): boolean {
   if (filter === "red") return show.status === "red";
-  if (filter === "attention") return show.status !== "green";
+  if (filter === "amber") return show.status === "amber";
+  if (filter === "week") {
+    const { from, to } = weekWindow();
+    return show.date >= from && show.date <= to;
+  }
   return true;
 }
 
-function Delta({ now, then }: { now: number; then?: number }) {
-  if (then === undefined) return null;
-  const diff = Math.round((now - then) * 100);
-  const text = diff === 0 ? "no change since publish"
-    : `${diff > 0 ? "▲ up" : "▼ down"} ${Math.abs(diff)} pts since publish`;
-  return <span className="delta"> · {text}</span>;
-}
+/** What the last update moved, grouped into one card per show so a coordinator can see at a
+ *  glance whose plans changed — and who to message. Names and show headers open their panels. */
+function UpdateSummary({ changes, onDismiss }: { changes: Change[]; onDismiss: () => void }) {
+  const { openPanel } = useApp();
+  const byShow = new Map<string, Change[]>();
+  for (const c of changes) byShow.set(c.show_id, [...(byShow.get(c.show_id) ?? []), c]);
+  const people = new Set(changes.map((c) => c.musician_id)).size;
 
-function ChangeList({ changes }: { changes: Change[] }) {
   return (
-    <ul className="change-list">
-      {changes.map((c, i) => (
-        <li key={i} className={c.change}>
-          <strong>{c.change === "added" ? "+" : "−"} {c.musician_name}</strong>{" "}
-          {c.change === "added" ? "added to" : "taken off"} {c.facility_name} {c.date ? `(${formatDate(c.date)})` : "(a removed show)"}
-          {c.reason && <span className="muted"> — {c.reason}</span>}
-        </li>
-      ))}
-    </ul>
+    <section className="update-summary">
+      <div className="update-summary-head">
+        <div>
+          <h3>What the update changed</h3>
+          <p className="small muted">
+            {byShow.size} show{byShow.size !== 1 ? "s" : ""} · {people} musician{people !== 1 ? "s" : ""} affected —
+            let them know their plans changed.
+          </p>
+        </div>
+        <button className="link-button" onClick={onDismiss}>Dismiss</button>
+      </div>
+      <div className="update-cards">
+        {[...byShow.entries()].sort(([, a], [, b]) => `${a[0].date}${a[0].start_time}`.localeCompare(`${b[0].date}${b[0].start_time}`))
+          .map(([showId, rows]) => {
+          const first = rows[0];
+          const showGone = rows.every((c) => c.reason === "show was removed");
+          const when = first.date ? <span>{formatDate(first.date)} · {first.start_time}{showGone ? " · removed" : ""}</span> : null;
+          const header = showGone || !first.date
+            ? <span className="update-card-title">{first.facility_name ?? "A removed show"} {when}</span>
+            : <button className="update-card-title" onClick={() => openPanel({ kind: "show", id: showId })}>
+                {first.facility_name} {when}
+              </button>;
+          return (
+            <div key={showId} className="update-card">
+              {header}
+              <ul>
+                {[...rows].sort((a, b) => (a.change === b.change ? 0 : a.change === "removed" ? -1 : 1)).map((c) => (
+                  <li key={`${c.change}-${c.musician_id}`}>
+                    <span className={`change-pill ${c.change}`}>{c.change === "added" ? "On" : "Off"}</span>
+                    <button className="person-name" onClick={() => openPanel({ kind: "musician", id: c.musician_id })}>
+                      {c.musician_name}
+                    </button>
+                    <span className="small muted">{c.reason}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          );
+        })}
+      </div>
+    </section>
   );
 }
 
-function DraftBar({ view, onResolved }: { view: ScheduleView; onResolved: (changes: Change[]) => void }) {
+/** Shown only when an edit (new show, availability change, cancellation…) left the schedule out
+ *  of date. Updating re-runs the optimizer, which moves as few people as it can to fit the change. */
+function UpdateBar({ reason, onUpdated }: { reason: string; onUpdated: (changes: Change[]) => void }) {
   const { refresh, showToast } = useApp();
-  const [busy, setBusy] = useState<"resolve" | "publish" | null>(null);
+  const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [showChanges, setShowChanges] = useState(false);
-  const s = view.state;
 
-  const resolve = () => {
-    setBusy("resolve");
+  const update = () => {
+    setBusy(true);
     setError(null);
     api<{ changes: Change[] }>("/api/schedule/resolve", { method: "POST" })
-      .then((r) => { onResolved(r.changes); refresh(); showToast(r.changes.length ? `Re-solved — ${r.changes.length} changes` : "Re-solved — nothing needed to move"); })
+      .then((r) => {
+        onUpdated(r.changes);
+        refresh();
+        showToast(r.changes.length ? `Schedule updated — ${r.changes.length} change${r.changes.length !== 1 ? "s" : ""}` : "Schedule updated — no one needed to move");
+      })
       .catch((e) => setError(e.message))
-      .finally(() => setBusy(null));
+      .finally(() => setBusy(false));
   };
 
-  const publish = () => {
-    setBusy("publish");
-    setError(null);
-    api("/api/schedule/publish", { method: "POST" })
-      .then(() => { refresh(); showToast("Published — this is now the schedule of record"); })
-      .catch((e) => setError(e.message))
-      .finally(() => setBusy(null));
-  };
-
-  const changeCount = s.unpublished_roster_changes.length;
   return (
-    <div className="draft-bar-wrap">
-      {s.needs_resolve && (
-        <div className="callout amber draft-stale">
-          <span><strong>The draft is out of date.</strong> {s.needs_resolve}</span>
-          <button className="button" onClick={resolve} disabled={busy !== null}>
-            {busy === "resolve" ? "Re-solving…" : "Re-solve draft"}
-          </button>
+    <div className="update-bar-wrap">
+      <div className="callout amber update-bar">
+        <div className="update-bar-row">
+          <span>
+            <strong>The schedule needs updating.</strong> {reason}{" "}
+            <span className="small">Updating finds the best fit while moving as few people as possible — usually a few seconds, up to 20.</span>
+          </span>
+          <button className="button" onClick={update} disabled={busy}>{busy ? "Updating…" : "Update schedule"}</button>
         </div>
-      )}
-      <div className={`draft-bar ${s.has_unpublished_changes ? "dirty" : "clean"}`}>
-        <div>
-          {!s.published && <><strong>Draft</strong> · never published — nothing is final until you publish.</>}
-          {s.published && s.has_unpublished_changes && (
-            <>
-              <strong>Draft</strong> · differs from the published schedule
-              {changeCount > 0 && (
-                <> — <button className="link-button" onClick={() => setShowChanges(!showChanges)}>
-                  {changeCount} roster change{changeCount !== 1 ? "s" : ""} {showChanges ? "▾" : "▸"}
-                </button></>
-              )}
-            </>
-          )}
-          {s.published && !s.has_unpublished_changes && <><strong>Published</strong> · the draft matches the schedule of record.</>}
-        </div>
-        <div className="draft-actions">
-          {!s.needs_resolve && (
-            <button className="button secondary" onClick={resolve} disabled={busy !== null}>
-              {busy === "resolve" ? "Re-solving…" : "Re-solve"}
-            </button>
-          )}
-          <button className="button" onClick={publish} disabled={busy !== null || !s.has_unpublished_changes}>
-            {busy === "publish" ? "Publishing…" : "Publish"}
-          </button>
-        </div>
+        {busy && <SolveProgress steps={UPDATE_STEPS} estimateSec={8} />}
       </div>
-      {showChanges && <ChangeList changes={s.unpublished_roster_changes} />}
       {error && <p className="error">{error}</p>}
     </div>
   );
@@ -118,25 +136,64 @@ function KpiTile({ label, value, status, sub, active, onClick }: {
   );
 }
 
-function KpiStrip({ kpis, published, attention, filter, setFilter }: {
-  kpis: Kpis; published: Kpis | null; attention: { red: number; amber: number }; filter: Filter; setFilter: (f: Filter) => void;
+function KpiStrip({ kpis, shows, filter, setFilter, onWeek }: {
+  kpis: Kpis; shows: ShowSummary[]; filter: Filter; setFilter: (f: Filter) => void; onWeek: (firstDate?: string) => void;
 }) {
-  const fillStatus: Status = kpis.fill_rate >= 1 ? "green" : "red";
+  const red = shows.filter((s) => s.status === "red").length;
+  const amber = shows.filter((s) => s.status === "amber").length;
+  const week = shows.filter((s) => matches(s, "week"));
+  const weekFlagged = week.filter((s) => s.status !== "green");
+  const fillStatus: Status = red === 0 ? "green" : "red";
   const backupStatus: Status = kpis.backup_coverage >= 0.9 ? "green" : kpis.backup_coverage >= 0.7 ? "amber" : "red";
-  const attentionStatus: Status = attention.red > 0 ? "red" : attention.amber > 0 ? "amber" : "green";
+  const weekStatus: Status = week.some((s) => s.status === "red") ? "red" : weekFlagged.length ? "amber" : "green";
   const toggle = (f: Filter) => setFilter(filter === f ? "all" : f);
   return (
     <div className="kpi-strip">
-      <KpiTile label="Backup coverage" value={pct(kpis.backup_coverage)} status={backupStatus} active={filter === "attention"}
-               onClick={() => toggle("attention")}
-               sub={<>shows with 3 backups incl. a pianist<Delta now={kpis.backup_coverage} then={published?.backup_coverage} /></>} />
-      <KpiTile label="Needs attention" value={String(attention.red + attention.amber)} status={attentionStatus}
-               active={filter === "attention"} onClick={() => toggle("attention")}
-               sub={`${attention.red} not fully staffed · ${attention.amber} thin on backups`} />
+      <KpiTile label={`Next ${URGENT_DAYS} days`} value={`${week.length} show${week.length !== 1 ? "s" : ""}`} status={weekStatus}
+               active={filter === "week"} onClick={() => { toggle("week"); if (filter !== "week") onWeek(week[0]?.date); }}
+               sub={week.length === 0 ? "nothing scheduled this week"
+                 : weekFlagged.length ? `${weekFlagged.length} need${weekFlagged.length === 1 ? "s" : ""} attention · click to highlight`
+                 : "all on track · click to highlight"} />
       <KpiTile label="Fully staffed" value={pct(kpis.fill_rate)} status={fillStatus} active={filter === "red"}
                onClick={() => toggle("red")}
-               sub={<>as planned, before any cancellations<Delta now={kpis.fill_rate} then={published?.fill_rate} /></>} />
+               sub={red ? `${red} show${red !== 1 ? "s" : ""} short as planned · click to show them` : "every show covered as planned"} />
+      <KpiTile label="Backup coverage" value={pct(kpis.backup_coverage)} status={backupStatus} active={filter === "amber"}
+               onClick={() => toggle("amber")}
+               sub={amber ? `${amber} show${amber !== 1 ? "s" : ""} thin on backups · click to show them` : "every show has 3 backups incl. a pianist"} />
     </div>
+  );
+}
+
+/** What a coordinator opens the app to find out: anything wrong in the next week, soonest first. */
+function Urgent({ shows, onOpen }: { shows: ShowSummary[]; onOpen: (s: ShowSummary) => void }) {
+  const today = parseDate(isoDate(new Date()));
+  const soon = shows.filter((s) => matches(s, "week"));
+  const flagged = soon.filter((s) => s.status !== "green");
+  if (soon.length === 0) return null;
+  if (flagged.length === 0) {
+    return <p className="urgent-ok"><StatusBadge status="green" compact /> All {soon.length} show{soon.length !== 1 ? "s" : ""} in the next {URGENT_DAYS} days are on track.</p>;
+  }
+  const red = flagged.filter((s) => s.status === "red").length;
+  const daysUntil = (d: string) => Math.round((parseDate(d).getTime() - today.getTime()) / 86_400_000);
+  const when = (d: string) => { const n = daysUntil(d); return n === 0 ? "today" : n === 1 ? "tomorrow" : `in ${n} days`; };
+  return (
+    <section className={`callout ${red ? "red" : "amber"} urgent`}>
+      <strong>
+        {red > 0 && `${red} show${red !== 1 ? "s" : ""} not fully staffed`}
+        {red > 0 && flagged.length > red && " and "}
+        {flagged.length > red && `${flagged.length - red} thin on backups`} in the next {URGENT_DAYS} days
+      </strong>
+      <div className="urgent-list">
+        {flagged.map((s) => (
+          <button key={s.show_id} className={`urgent-item ${s.status}`} onClick={() => onOpen(s)}>
+            <StatusBadge status={s.status} compact />
+            <span className="urgent-when">{when(s.date)}</span>
+            <span>{s.facility_name} · {formatDate(s.date)} {s.start_time}</span>
+            <span className="small muted">{s.reasons[0]}</span>
+          </button>
+        ))}
+      </div>
+    </section>
   );
 }
 
@@ -229,7 +286,7 @@ function AtAGlance({ view }: { view: ScheduleView }) {
           <Tooltip />
           <Legend />
           <Bar dataKey="needed" name="Needed" fill="#2a78d6" radius={[4, 4, 0, 0]} />
-          <Bar dataKey="available" name="Marked available" fill="#eb6834" radius={[4, 4, 0, 0]} />
+          <Bar dataKey="available" name="Marked available" fill="var(--neutral-series)" radius={[4, 4, 0, 0]} />
         </BarChart>
       </ResponsiveContainer>
     </details>
@@ -237,11 +294,10 @@ function AtAGlance({ view }: { view: ScheduleView }) {
 }
 
 export default function ControlTower() {
-  const { version, openPanel } = useApp();
+  const { version, openPanel, calendarFilter: filter, setCalendarFilter: setFilter,
+          calendarMonth: pickedMonth, setCalendarMonth: setMonth } = useApp();
   const [view, setView] = useState<ScheduleView | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [filter, setFilter] = useState<Filter>("all");
-  const [pickedMonth, setMonth] = useState<string | null>(null);
   const [justResolved, setJustResolved] = useState<Change[] | null>(null);
 
   useEffect(() => {
@@ -255,27 +311,19 @@ export default function ControlTower() {
   if (error) return <p className="error">Couldn't load the schedule: {error}</p>;
   if (!view || !month) return <p className="muted loading">Loading this month's schedule…</p>;
 
-  const attention = {
-    red: view.shows.filter((s) => s.status === "red").length,
-    amber: view.shows.filter((s) => s.status === "amber").length,
-  };
   const monthIdx = months.indexOf(month);
   const open = (s: ShowSummary) => { setMonth(s.date.slice(0, 7)); openPanel({ kind: "show", id: s.show_id }); };
 
   return (
     <div>
-      <DraftBar view={view} onResolved={setJustResolved} />
+      {view.state.needs_resolve && <UpdateBar reason={view.state.needs_resolve} onUpdated={setJustResolved} />}
       {justResolved && justResolved.length > 0 && (
-        <div className="callout neutral">
-          <div className="callout-head">
-            <strong>What the last re-solve changed</strong>
-            <button className="link-button" onClick={() => setJustResolved(null)}>Dismiss</button>
-          </div>
-          <ChangeList changes={justResolved} />
-        </div>
+        <UpdateSummary changes={justResolved} onDismiss={() => setJustResolved(null)} />
       )}
 
-      <KpiStrip kpis={view.kpis} published={view.published_kpis} attention={attention} filter={filter} setFilter={setFilter} />
+      <Urgent shows={view.shows} onOpen={open} />
+      <KpiStrip kpis={view.kpis} shows={view.shows} filter={filter} setFilter={setFilter}
+                onWeek={(d) => { if (d) setMonth(d.slice(0, 7)); }} />
       <Roadmap shows={view.shows} onOpen={open} />
 
       <div className="calendar-head">
@@ -286,7 +334,12 @@ export default function ControlTower() {
         </div>
         <div className="legend">
           <StatusBadge status="green" /> <StatusBadge status="amber" /> <StatusBadge status="red" />
-          {filter !== "all" && <button className="link-button" onClick={() => setFilter("all")}>Show all shows</button>}
+          {filter !== "all" && (
+            <span className="filter-note">
+              Showing {filter === "red" ? "not fully staffed" : filter === "amber" ? "thin on backups" : `the next ${URGENT_DAYS} days`} ·{" "}
+              <button className="link-button" onClick={() => setFilter("all")}>Show all shows</button>
+            </span>
+          )}
         </div>
       </div>
       <Calendar month={month} shows={view.shows} filter={filter} onOpen={open}

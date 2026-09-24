@@ -27,7 +27,7 @@ function useSort<T>(rows: T[], initial: keyof T) {
 }
 
 function MusiciansTab() {
-  const { version, refresh, openPanel, showToast } = useApp();
+  const { version, refresh, openPanel, showToast, confirm, removeWithUndo, pendingRemoval } = useApp();
   const [musicians, setMusicians] = useState<Musician[]>([]);
   const [query, setQuery] = useState("");
   const [page, setPage] = useState(0);
@@ -41,9 +41,10 @@ function MusiciansTab() {
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
-    return q ? musicians.filter((m) => [m.musician_id, m.display_name, m.instrument, m.home_region]
-      .some((f) => f.toLowerCase().includes(q))) : musicians;
-  }, [musicians, query]);
+    const visible = musicians.filter((m) => !pendingRemoval.has(`musician:${m.musician_id}`));
+    return q ? visible.filter((m) => [m.musician_id, m.display_name, m.instrument, m.home_region]
+      .some((f) => f.toLowerCase().includes(q))) : visible;
+  }, [musicians, query, pendingRemoval]);
   const { sorted, header } = useSort(filtered, "musician_id");
   const pages = Math.max(1, Math.ceil(sorted.length / PAGE_SIZE));
   const current = sorted.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
@@ -65,10 +66,22 @@ function MusiciansTab() {
     fn().then(() => { showToast(msg); setSelected(new Set()); refresh(); }).catch((e) => setError(e.message));
   };
 
-  const remove = (m: Musician) => {
-    if (window.confirm(`Remove ${m.display_name} from the roster? Their shows, backups and availability go with them.`)) {
-      run(() => api(`/api/musicians/${m.musician_id}`, { method: "DELETE" }), `${m.display_name} removed`);
-    }
+  const remove = async (m: Musician) => {
+    const ok = await confirm({ title: `Remove ${m.display_name}?`, confirmLabel: "Remove",
+                               body: "Their shows, backups and weekly availability go with them." });
+    if (!ok) return;
+    removeWithUndo([`musician:${m.musician_id}`], `${m.display_name} removed`,
+                   () => api(`/api/musicians/${m.musician_id}`, { method: "DELETE" }));
+  };
+
+  const removeSelected = async () => {
+    const ids = [...selected];
+    const ok = await confirm({ title: `Remove ${ids.length} musicians?`, confirmLabel: `Remove ${ids.length}`,
+                               body: "Their shows, backups and weekly availability go with them." });
+    if (!ok) return;
+    setSelected(new Set());
+    removeWithUndo(ids.map((id) => `musician:${id}`), `${ids.length} musicians removed`,
+                   () => api("/api/musicians/bulk-delete", { method: "POST", body: { musician_ids: ids } }));
   };
 
   return (
@@ -89,12 +102,7 @@ function MusiciansTab() {
           <button className="button secondary" onClick={() => run(
             () => api("/api/musicians/bulk-update", { method: "POST", body: { musician_ids: [...selected], changes: { max_shows_per_month: bulkCap } } }),
             `Updated ${selected.size} musicians`)}>Apply</button>
-          <button className="button secondary danger" onClick={() => {
-            if (window.confirm(`Remove ${selected.size} musicians from the roster?`)) {
-              run(() => api("/api/musicians/bulk-delete", { method: "POST", body: { musician_ids: [...selected] } }),
-                  `Removed ${selected.size} musicians`);
-            }
-          }}>Remove</button>
+          <button className="button secondary danger" onClick={removeSelected}>Remove</button>
           <button className="link-button" onClick={() => setSelected(new Set())}>Clear</button>
         </div>
       )}
@@ -121,9 +129,12 @@ function MusiciansTab() {
               <td>{m.home_region}</td>
               <td>{m.max_shows_per_month}</td>
               <td className="icon-actions">
-                <button title="Edit details" onClick={() => openPanel({ kind: "musicianForm", id: m.musician_id })}>✎</button>
-                <button title="Edit weekly availability" onClick={() => openPanel({ kind: "availability", id: m.musician_id })}>◷</button>
-                <button title="Remove from roster" className="danger" onClick={() => remove(m)}>✕</button>
+                <button title="Edit details" aria-label={`Edit ${m.display_name}'s details`}
+                        onClick={() => openPanel({ kind: "musicianForm", id: m.musician_id })}>✎</button>
+                <button title="Edit weekly availability" aria-label={`Edit ${m.display_name}'s weekly availability`}
+                        onClick={() => openPanel({ kind: "availability", id: m.musician_id })}>◷</button>
+                <button title="Remove from roster" aria-label={`Remove ${m.display_name} from the roster`} className="danger"
+                        onClick={() => remove(m)}>✕</button>
               </td>
             </tr>
           ))}
@@ -210,25 +221,25 @@ function AvailabilityTab() {
 }
 
 function ShowsTab() {
-  const { version, refresh, openPanel, showToast } = useApp();
+  const { version, openPanel, confirm, removeWithUndo, pendingRemoval } = useApp();
   const [shows, setShows] = useState<ShowSummary[]>([]);
   const [query, setQuery] = useState("");
-  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     api<ScheduleView>("/api/schedule").then((v) => setShows(v.shows));
   }, [version]);
 
   const q = query.trim().toLowerCase();
-  const filtered = q ? shows.filter((s) => `${s.facility_name} ${s.date}`.toLowerCase().includes(q)) : shows;
+  const visible = shows.filter((s) => !pendingRemoval.has(`show:${s.show_id}`));
+  const filtered = q ? visible.filter((s) => `${s.facility_name} ${s.date}`.toLowerCase().includes(q)) : visible;
   const { sorted, header } = useSort(filtered, "date");
 
-  const remove = (s: ShowSummary) => {
-    if (!window.confirm(`Remove ${s.facility_name} on ${formatDate(s.date)}? Everyone scheduled on it comes off.`)) return;
-    setError(null);
-    api(`/api/shows/${s.show_id}`, { method: "DELETE" })
-      .then(() => { showToast("Show removed"); refresh(); })
-      .catch((e) => setError(e.message));
+  const remove = async (s: ShowSummary) => {
+    const ok = await confirm({ title: `Remove the show at ${s.facility_name} on ${formatDate(s.date)}?`,
+                               confirmLabel: "Remove show", body: "Everyone scheduled on it comes off." });
+    if (!ok) return;
+    removeWithUndo([`show:${s.show_id}`], `${s.facility_name} on ${formatDate(s.date)} removed`,
+                   () => api(`/api/shows/${s.show_id}`, { method: "DELETE" }));
   };
 
   return (
@@ -238,7 +249,6 @@ function ShowsTab() {
         <span className="muted small">{filtered.length} upcoming show{filtered.length !== 1 ? "s" : ""}</span>
         <button className="button" onClick={() => openPanel({ kind: "addShow" })}>+ Add show</button>
       </div>
-      {error && <p className="error">{error}</p>}
       <table className="data-table">
         <thead>
           <tr>
@@ -256,8 +266,8 @@ function ShowsTab() {
               <td>{s.musician_count} / {s.target_musicians}</td>
               <td>{s.backup_count}</td>
               <td className="icon-actions">
-                <button title="Edit details" onClick={() => openPanel({ kind: "editShow", id: s.show_id })}>✎</button>
-                <button title="Remove show" className="danger" onClick={() => remove(s)}>✕</button>
+                <button title="Edit details" aria-label="Edit this show" onClick={() => openPanel({ kind: "editShow", id: s.show_id })}>✎</button>
+                <button title="Remove show" aria-label="Remove this show" className="danger" onClick={() => remove(s)}>✕</button>
               </td>
             </tr>
           ))}
@@ -272,7 +282,7 @@ export default function WorkingTools() {
   return (
     <div>
       <h1>Roster</h1>
-      <p className="subtitle">Musicians, who's usually free when, and upcoming shows. Changes mark the draft as out of date until you re-solve it.</p>
+      <p className="subtitle">Musicians, who's usually free when, and upcoming shows. After changes, update the schedule from the calendar.</p>
       <div className="tabs" role="tablist">
         {([["musicians", "Musicians"], ["availability", "Availability"], ["shows", "Shows"]] as const).map(([id, label]) => (
           <button key={id} role="tab" aria-selected={tab === id} className={tab === id ? "active" : ""} onClick={() => setTab(id)}>

@@ -20,6 +20,7 @@ export interface Change {
   musician_name: string;
   show_id: string;
   date: string | null;
+  start_time: string | null;
   facility_name: string | null;
   reason: string;
 }
@@ -41,19 +42,14 @@ export interface ShowSummary {
   backup_count: number;
   backup_ready: boolean;
   locked_count: number;
-  changed_since_publish: boolean;
 }
 
 export interface ScheduleView {
   state: {
-    published: boolean;
-    has_unpublished_changes: boolean;
-    unpublished_roster_changes: Change[];
     needs_resolve: string | null;
     last_resolve_changes: Change[];
   };
   kpis: Kpis;
-  published_kpis: Kpis | null;
   shows: ShowSummary[];
   weekly_capacity: { week: string; needed: number; available: number }[];
 }
@@ -97,8 +93,6 @@ export interface ShowDetail {
   }[];
   cars: { driver: string; riders: string[]; distance_km: number }[];
   solo_transit: string[];
-  bans: { musician_id: string; name: string; scope: "show" | "facility"; target_id: string }[];
-  changed_since_publish: boolean;
 }
 
 export interface ShowRef {
@@ -123,7 +117,6 @@ export interface MusicianProfile {
   backing: (ShowRef & { rank: number })[];
   cap_usage: { month: string; playing: number; cap: number }[];
   weekly_availability: { weekday: string; start_time: string; end_time: string }[];
-  bans: { scope: "show" | "facility"; target_id: string; label: string }[];
 }
 
 export interface Musician {

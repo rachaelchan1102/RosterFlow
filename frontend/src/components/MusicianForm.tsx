@@ -1,6 +1,6 @@
 import { useEffect, useState, type ChangeEvent } from "react";
 import { api } from "../api";
-import { useApp } from "../AppState";
+import { useApp, usePanelTitle } from "../AppState";
 import type { Musician } from "../types";
 
 const EMPTY: Musician = {
@@ -17,6 +17,7 @@ function nextMusicianId(all: Musician[]): string {
 export default function MusicianForm({ musicianId }: { musicianId?: string }) {
   const { refresh, backPanel, showToast } = useApp();
   const editing = Boolean(musicianId);
+  usePanelTitle(editing ? "Edit details" : "Add a musician");
   const [form, setForm] = useState<Musician>(EMPTY);
   const [error, setError] = useState<string | null>(null);
 
@@ -35,7 +36,7 @@ export default function MusicianForm({ musicianId }: { musicianId?: string }) {
       ? api(`/api/musicians/${musicianId}`, { method: "PUT", body: form })
       : api("/api/musicians", { method: "POST", body: form });
     req.then(() => {
-      showToast(editing ? "Saved" : `${form.display_name} added — re-solve the draft to schedule them`);
+      showToast(editing ? "Saved" : `${form.display_name} added — update the schedule on the calendar to include them`);
       refresh();
       backPanel();
     }).catch((e) => setError(e.message));

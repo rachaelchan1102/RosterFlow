@@ -8,6 +8,8 @@
   --border: #e3e1da;
   --accent: #2a78d6;
   --accent-soft: #e6f0fb;
+  /* Chart series that aren't status — never red/amber/green, which only ever mean show status. */
+  --neutral-series: #8d96a3;
 
   /* One status language, used identically on every screen (calendar chip, KPI tile, badge, callout). */
   --green: #0c8a0c;

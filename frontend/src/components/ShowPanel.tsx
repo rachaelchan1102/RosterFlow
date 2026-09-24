@@ -1,17 +1,15 @@
 import { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
 import { api } from "../api";
-import { useApp } from "../AppState";
+import { useApp, usePanelTitle } from "../AppState";
 import { formatDate } from "../format";
 import type { ShowDetail } from "../types";
 import { CoverageBar, StatusBadge } from "./Status";
 
 export default function ShowPanel({ showId }: { showId: string }) {
-  const { version, refresh, openPanel, closePanels, showToast } = useApp();
-  const navigate = useNavigate();
+  const { version, refresh, openPanel, showToast } = useApp();
   const [detail, setDetail] = useState<ShowDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [banMenuFor, setBanMenuFor] = useState<string | null>(null);
+  usePanelTitle(detail ? `${detail.facility_name} · ${formatDate(detail.date)}` : null);
 
   useEffect(() => {
     api<ShowDetail>(`/api/shows/${showId}/detail`).then(setDetail).catch((e) => setError(e.message));
@@ -29,23 +27,12 @@ export default function ShowPanel({ showId }: { showId: string }) {
     act(() => locked
         ? api(`/api/locks?musician_id=${musicianId}&show_id=${showId}`, { method: "DELETE" })
         : api("/api/locks", { method: "POST", body: { musician_id: musicianId, show_id: showId } }),
-      locked ? "Unlocked" : "Locked — the next re-solve will keep them here");
+      locked ? "Unlocked" : "Locked — schedule updates will keep them here");
 
-  const ban = (musicianId: string, scope: "show" | "facility") => {
-    setBanMenuFor(null);
-    act(() => api("/api/bans", { method: "POST", body: { musician_id: musicianId, scope,
-                                                          target_id: scope === "show" ? showId : detail.facility_id } }),
-        "Ban added — re-solve the draft to apply it");
-  };
+  const guardianCars = detail.cars.filter((c) => c.driver === "a guardian");
+  const carpools = detail.cars.filter((c) => c.driver !== "a guardian");
+  const totalKm = detail.cars.reduce((sum, c) => sum + c.distance_km, 0);
 
-  const removeBan = (b: ShowDetail["bans"][number]) =>
-    act(() => api(`/api/bans?musician_id=${b.musician_id}&scope=${b.scope}&target_id=${b.target_id}`, { method: "DELETE" }),
-        "Ban removed");
-
-  const startCancellation = (musicianId: string) => {
-    closePanels();
-    navigate(`/cancel?show=${showId}&musician=${musicianId}`);
-  };
 
   const c = detail.coverage;
   return (
@@ -57,7 +44,6 @@ export default function ShowPanel({ showId }: { showId: string }) {
         </p>
         <div className="panel-tags">
           <StatusBadge status={detail.status} />
-          {detail.changed_since_publish && <span className="tag">Changed since publish</span>}
           {!detail.has_piano_onsite && <span className="tag">Bring a keyboard</span>}
         </div>
       </div>
@@ -93,18 +79,11 @@ export default function ShowPanel({ showId }: { showId: string }) {
                         title={m.locked ? "Locked on this show — click to unlock" : "Keep them on this show no matter what"}>
                   {m.locked ? "🔒 Locked" : "Lock"}
                 </button>
-                <span className="menu-wrap">
-                  <button className="chip-button" onClick={() => setBanMenuFor(banMenuFor === m.musician_id ? null : m.musician_id)}>
-                    Ban…
-                  </button>
-                  {banMenuFor === m.musician_id && (
-                    <span className="menu">
-                      <button onClick={() => ban(m.musician_id, "show")}>From this show</button>
-                      <button onClick={() => ban(m.musician_id, "facility")}>From {detail.facility_name} entirely</button>
-                    </span>
-                  )}
-                </span>
-                <button className="chip-button danger" onClick={() => startCancellation(m.musician_id)}>Cancelled</button>
+                <span className="row-divider" aria-hidden />
+                <button className="text-action danger" title="Start the cancellation flow for this musician"
+                        onClick={() => openPanel({ kind: "cancel", showId, musicianId: m.musician_id })}>
+                  ⚠ Report cancellation
+                </button>
               </span>
             </li>
           ))}
@@ -132,34 +111,39 @@ export default function ShowPanel({ showId }: { showId: string }) {
 
       <section className="panel-section">
         <h3>Getting there</h3>
-        <ul className="car-list">
-          {detail.cars.map((car, i) => (
-            <li key={i}>
-              <strong>{car.driver === "a guardian" ? "Guardian drives" : `${car.driver} drives`}</strong>
-              <span className="muted small"> · {car.distance_km.toFixed(0)} km</span>
-              <div className="small">{car.riders.join(", ")}</div>
-            </li>
-          ))}
-        </ul>
+        <p className="travel-summary">
+          <strong>{detail.cars.length} car{detail.cars.length !== 1 ? "s" : ""}</strong> · {totalKm.toFixed(0)} km total
+          {guardianCars.length > 0 && <> · {guardianCars.length} guardian drop-off{guardianCars.length !== 1 ? "s" : ""}</>}
+          {detail.solo_transit.length > 0 && <> · {detail.solo_transit.length} by transit</>}
+        </p>
+        {carpools.length > 0 && (
+          <div className="travel-group">
+            <span className="travel-label">Carpools</span>
+            <ul className="car-list">
+              {carpools.map((car, i) => (
+                <li key={i}>
+                  <strong>{car.driver} drives</strong><span className="muted small"> · {car.distance_km.toFixed(0)} km</span>
+                  {car.riders.length > 0 && <div className="small">with {car.riders.join(", ")}</div>}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+        {guardianCars.length > 0 && (
+          <div className="travel-group">
+            <span className="travel-label">Guardian drop-offs</span>
+            <p className="small travel-inline">
+              {guardianCars.map((c) => `${c.riders.join(" & ")} (${c.distance_km.toFixed(0)} km)`).join(" · ")}
+            </p>
+          </div>
+        )}
         {detail.solo_transit.length > 0 && (
-          <p className="small muted">On their own (transit): {detail.solo_transit.join(", ")}</p>
+          <div className="travel-group">
+            <span className="travel-label">On their own, by transit</span>
+            <p className="small travel-inline">{detail.solo_transit.join(" · ")}</p>
+          </div>
         )}
       </section>
-
-      {detail.bans.length > 0 && (
-        <section className="panel-section">
-          <h3>Bans affecting this show</h3>
-          <ul className="person-list">
-            {detail.bans.map((b) => (
-              <li key={`${b.musician_id}-${b.scope}`}>
-                <span>{b.name}</span>
-                <span className="muted small">{b.scope === "show" ? "this show" : "whole location"}</span>
-                <span className="row-actions"><button className="chip-button" onClick={() => removeBan(b)}>Remove</button></span>
-              </li>
-            ))}
-          </ul>
-        </section>
-      )}
 
       <div className="panel-footer">
         <button className="button secondary" onClick={() => openPanel({ kind: "editShow", id: showId })}>Edit show details</button>

@@ -60,6 +60,10 @@ class Workspace:
         self.bans: set[tuple[str, str, str]] = set()           # (musician_id, "show" | "facility", target_id)
         self.needs_resolve: str | None = None                  # why the draft is out of date, if it is
         self.last_resolve_changes: list[dict] = []
+        # People taken off shows by an edit (a musician or show deleted) since the last solve. The
+        # edit prunes them from the draft straight away, so the next solve's diff can't see them —
+        # they're kept here, already named, so its summary can still say who came off and why.
+        self.pending_removals: list[dict] = []
         self.lock = threading.RLock()
         self.last_used = time.monotonic()
         self._save_data = save_data
@@ -120,7 +124,9 @@ class Workspace:
                     "locked onto two shows on the same day — remove one of those locks and try again.")
             raise WorkspaceError("Couldn't build a schedule in time. Try again, or with fewer changes at once.")
         backups = assign_backups(self.data, result.assignments, excluded=self.banned_pairs()).backups
-        changes = self._diff(previous, result.assignments) if previous is not None else []
+        changes = (self._diff(previous, result.assignments, self.pending_removals)
+                   if previous is not None else [])
+        self.pending_removals = []
         self.draft = Schedule(result.assignments, backups)
         self.needs_resolve = None
         self.last_resolve_changes = changes
@@ -131,10 +137,14 @@ class Workspace:
         self.published = self.require_draft()
         self._persist(state=True)
 
-    def _diff(self, old: pd.DataFrame, new: pd.DataFrame) -> list[dict]:
+    def _name(self, musician_id: str) -> str:
+        m = self.data.musicians
+        return str(m.at[musician_id, "display_name"]) if musician_id in m.index else "a removed musician"
+
+    def _diff(self, old: pd.DataFrame, new: pd.DataFrame, removed_before: list[dict] = ()) -> list[dict]:
         old_pairs, new_pairs = _pairs(old), _pairs(new)
         banned = self.banned_pairs()
-        changes = []
+        changes = list(removed_before)
         for m, s in sorted(old_pairs - new_pairs, key=lambda p: (p[1], p[0])):
             if m not in self.data.musicians.index:
                 reason = "musician was removed from the roster"
@@ -147,8 +157,18 @@ class Workspace:
             else:
                 reason = "moved to rebalance the schedule"
             changes.append(dict(change="removed", musician_id=m, show_id=s, reason=reason))
+        old_shows = {s for _, s in old_pairs} | {c["show_id"] for c in removed_before}
+        removed_by_show: dict[str, list[str]] = {}
+        for c in changes:
+            removed_by_show.setdefault(c["show_id"], []).append(c.get("musician_name") or self._name(c["musician_id"]))
         for m, s in sorted(new_pairs - old_pairs, key=lambda p: (p[1], p[0])):
-            changes.append(dict(change="added", musician_id=m, show_id=s, reason=""))
+            if s not in old_shows:
+                reason = "new show that needed musicians"
+            elif s in removed_by_show:
+                reason = "replacing " + ", ".join(removed_by_show[s])
+            else:
+                reason = "fills a gap in songs or headcount"
+            changes.append(dict(change="added", musician_id=m, show_id=s, reason=reason))
         return changes
 
     # ------------------------------------------------------------------ roster edits
@@ -158,11 +178,26 @@ class Workspace:
         The draft is kept — only pruned of rows pointing at things that no longer exist — and
         marked stale, so the coordinator decides when to re-solve. `stale_reason` may be a function,
         called after the edit, when the wording depends on the edited data."""
-        self.data = fn(self.data)
+        old_data = self.data
+        before = _pairs(self.draft.assignments) if self.draft is not None else set()
+        self.data = fn(old_data)
         self._prune()
+        if self.draft is not None:
+            self._note_removals(old_data, before - _pairs(self.draft.assignments))
         if self.draft is not None:
             self.needs_resolve = stale_reason() if callable(stale_reason) else stale_reason
         self._persist(data=True, state=True)
+
+    def _note_removals(self, old_data: Data, dropped: set[tuple[str, str]]) -> None:
+        """Name the pairs an edit just pruned, from the data as it was before the edit."""
+        for m, s in sorted(dropped, key=lambda p: (p[1], p[0])):
+            show = old_data.shows.loc[s]
+            self.pending_removals.append(dict(
+                change="removed", musician_id=m, show_id=s,
+                reason=("removed from the roster" if m not in self.data.musicians.index else "show was removed"),
+                musician_name=str(old_data.musicians.at[m, "display_name"]),
+                date=str(show.date), start_time=str(show.start_time),
+                facility_name=str(old_data.facilities.at[show.facility_id, "display_name"])))
 
     def _prune(self) -> None:
         musicians = set(self.data.musicians.index)

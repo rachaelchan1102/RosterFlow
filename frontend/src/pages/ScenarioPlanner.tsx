@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { api } from "../api";
 import FeasibilityCheck from "../components/FeasibilityCheck";
+import SolveProgress from "../components/SolveProgress";
 import type { Facility, Kpis } from "../types";
 
 // The scenario endpoint adds the simulated music shortfall to the usual KPIs.
@@ -60,8 +61,7 @@ function NewShowCheck() {
   };
 
   return (
-    <section className="new-show-check">
-      <h2>Would an extra show work?</h2>
+    <section className="tool-panel">
       <p className="subtitle">
         A location asks for a show on a certain day and time. See how likely it is you could staff it before saying yes —
         given who's already booked, who's at their monthly cap, and who's usually free at that time.
@@ -101,7 +101,14 @@ function NewShowCheck() {
   );
 }
 
-export default function ScenarioPlanner() {
+const SCENARIO_STEPS = [
+  "Taking the lost musicians out of the roster",
+  "Rebuilding the schedule without them",
+  "Ranking backups for every show",
+  "Simulating 3,000 months of cancellations",
+];
+
+function StressTest() {
   const [rate, setRate] = useState(0.25);
   const [removeMusicians, setRemoveMusicians] = useState(0);
   const [result, setResult] = useState<ScenarioResponse | null>(null);
@@ -123,9 +130,8 @@ export default function ScenarioPlanner() {
   const stop = RATE_STOPS.find((s) => s.value === ranWith?.rate);
 
   return (
-    <div>
-      <h1>Scenario planner</h1>
-      <p className="subtitle">What if the coming weeks go worse than usual? Compare against the current draft, side by side.</p>
+    <section className="tool-panel">
+      <p className="subtitle">What if the coming weeks go worse than usual? Compare against the current schedule, side by side.</p>
 
       <div className="scenario-layout">
         <div className="scenario-controls">
@@ -152,8 +158,12 @@ export default function ScenarioPlanner() {
         </div>
 
         <div className="scenario-results">
-          {!result && <p className="muted">Pick a scenario and run it — results show up here next to the current schedule's numbers.</p>}
-          {result && full && ranWith && (
+          {loading && (
+            <SolveProgress steps={removeMusicians > 0 ? SCENARIO_STEPS : SCENARIO_STEPS.slice(3)}
+                           estimateSec={removeMusicians > 0 ? 22 : 3} />
+          )}
+          {!loading && !result && <p className="muted">Pick a scenario and run it — results show up here next to the current schedule's numbers.</p>}
+          {!loading && result && full && ranWith && (
             <>
               <p className="scenario-summary">
                 At <strong>{stop?.phrase ?? `a ${Math.round(ranWith.rate * 100)}% cancellation rate`}</strong>
@@ -184,8 +194,28 @@ export default function ScenarioPlanner() {
           )}
         </div>
       </div>
-      <hr />
-      <NewShowCheck />
+    </section>
+  );
+}
+
+type Tool = "stress" | "extra";
+
+export default function ScenarioPlanner() {
+  const [tool, setTool] = useState<Tool>("stress");
+  return (
+    <div>
+      <h1>Scenario planner</h1>
+      <div className="tool-tabs" role="tablist">
+        <button role="tab" aria-selected={tool === "stress"} className={tool === "stress" ? "active" : ""} onClick={() => setTool("stress")}>
+          <strong>Stress-test the schedule</strong>
+          <span>More cancellations, fewer musicians</span>
+        </button>
+        <button role="tab" aria-selected={tool === "extra"} className={tool === "extra" ? "active" : ""} onClick={() => setTool("extra")}>
+          <strong>Would an extra show work?</strong>
+          <span>Check a day and time before saying yes</span>
+        </button>
+      </div>
+      {tool === "stress" ? <StressTest /> : <NewShowCheck />}
     </div>
   );
 }

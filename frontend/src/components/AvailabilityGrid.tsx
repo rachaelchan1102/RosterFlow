@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useState } from "react";
 import { api } from "../api";
-import { useApp } from "../AppState";
+import { useApp, usePanelTitle } from "../AppState";
 import type { MusicianProfile } from "../types";
 
 const DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
@@ -62,6 +62,7 @@ export default function AvailabilityGrid({ musicianId }: { musicianId: string })
   const [error, setError] = useState<string | null>(null);
 
   const [name, setName] = useState("");
+  usePanelTitle("Weekly availability");
 
   useEffect(() => {
     api<Window[]>(`/api/musicians/${musicianId}/availability`).then((windows) => setGrid(toGrid(windows)));

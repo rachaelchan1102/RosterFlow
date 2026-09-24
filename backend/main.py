@@ -133,6 +133,13 @@ def get_schedule(ws: Workspace = Depends(get_workspace)):
         return views.schedule_view(ws)
 
 
+@app.get("/api/schedule/status")
+def get_schedule_status(ws: Workspace = Depends(get_workspace)):
+    """Cheap check any page can make: is the schedule out of date, and why?"""
+    with using(ws):
+        return {"needs_update": ws.needs_resolve}
+
+
 @app.post("/api/schedule/resolve")
 def resolve_schedule(ws: Workspace = Depends(get_workspace)):
     with using(ws):

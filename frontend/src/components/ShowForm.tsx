@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { api } from "../api";
-import { useApp } from "../AppState";
+import { useApp, usePanelTitle } from "../AppState";
 import type { Facility, Show } from "../types";
 import FeasibilityCheck from "./FeasibilityCheck";
 
@@ -13,6 +13,7 @@ function nextShowId(shows: Show[]): string {
 export default function ShowForm({ showId, initialDate }: { showId?: string; initialDate?: string }) {
   const { refresh, backPanel, closePanels, showToast } = useApp();
   const editing = Boolean(showId);
+  usePanelTitle(editing ? "Edit show" : "Add a show");
   const [facilities, setFacilities] = useState<Facility[]>([]);
   const [form, setForm] = useState<Show>({ show_id: "", facility_id: "", date: initialDate ?? "", start_time: "14:00",
                                            duration_min: 60, period: "upcoming" });
@@ -45,7 +46,7 @@ export default function ShowForm({ showId, initialDate }: { showId?: string; ini
       ? api(`/api/shows/${showId}`, { method: "PUT", body: form })
       : api("/api/shows", { method: "POST", body: form });
     req.then(() => {
-      showToast(editing ? "Show updated" : "Show added — re-solve the draft to staff it");
+      showToast(editing ? "Show updated" : "Show added — update the schedule on the calendar to staff it");
       refresh();
       if (editing) backPanel(); else closePanels();
     }).catch((e) => setError(e.message));

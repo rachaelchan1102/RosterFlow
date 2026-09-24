@@ -1,14 +1,15 @@
 import { useEffect, useState } from "react";
 import { api } from "../api";
-import { useApp } from "../AppState";
+import { useApp, usePanelTitle } from "../AppState";
 import { formatDate, formatMonth } from "../format";
 import type { MusicianProfile } from "../types";
 import { CoverageBar } from "./Status";
 
 export default function MusicianPanel({ musicianId }: { musicianId: string }) {
-  const { version, refresh, openPanel, showToast } = useApp();
+  const { version, openPanel } = useApp();
   const [profile, setProfile] = useState<MusicianProfile | null>(null);
   const [error, setError] = useState<string | null>(null);
+  usePanelTitle(profile?.name);
 
   useEffect(() => {
     api<MusicianProfile>(`/api/musicians/${musicianId}/profile`).then(setProfile).catch((e) => setError(e.message));
@@ -16,11 +17,6 @@ export default function MusicianPanel({ musicianId }: { musicianId: string }) {
 
   if (error) return <p className="error">{error}</p>;
   if (!profile) return <p className="muted">Loading…</p>;
-
-  const removeBan = (b: MusicianProfile["bans"][number]) =>
-    api(`/api/bans?musician_id=${musicianId}&scope=${b.scope}&target_id=${b.target_id}`, { method: "DELETE" })
-      .then(() => { showToast("Ban removed"); refresh(); })
-      .catch((e) => setError(e.message));
 
   const p = profile;
   return (
@@ -90,20 +86,6 @@ export default function MusicianPanel({ musicianId }: { musicianId: string }) {
           Edit availability
         </button>
       </section>
-
-      {p.bans.length > 0 && (
-        <section className="panel-section">
-          <h3>Bans</h3>
-          <ul className="person-list">
-            {p.bans.map((b) => (
-              <li key={`${b.scope}-${b.target_id}`}>
-                <span>{b.scope === "show" ? "Show " : ""}{b.label}</span>
-                <span className="row-actions"><button className="chip-button" onClick={() => removeBan(b)}>Remove</button></span>
-              </li>
-            ))}
-          </ul>
-        </section>
-      )}
 
       <div className="panel-footer">
         <button className="button secondary" onClick={() => openPanel({ kind: "musicianForm", id: musicianId })}>Edit details</button>

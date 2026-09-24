@@ -115,10 +115,13 @@ def describe_changes(ws: Workspace, changes: list[dict]) -> list[dict]:
     out = []
     for c in changes:
         show_id = c["show_id"]
-        out.append(dict(c, musician_name=musician_name(ws, c["musician_id"]),
-                        date=str(shows.at[show_id, "date"]) if show_id in shows.index else None,
-                        facility_name=(_facility_name(ws, shows.at[show_id, "facility_id"])
-                                       if show_id in shows.index else None)))
+        looked_up = dict(musician_name=musician_name(ws, c["musician_id"]),
+                         date=str(shows.at[show_id, "date"]) if show_id in shows.index else None,
+                         start_time=str(shows.at[show_id, "start_time"]) if show_id in shows.index else None,
+                         facility_name=(_facility_name(ws, shows.at[show_id, "facility_id"])
+                                        if show_id in shows.index else None))
+        # Changes for people or shows deleted since arrive already named; keep those names.
+        out.append({**looked_up, **c})
     return out
 
 
