@@ -87,10 +87,12 @@ def assign_backups(data: Data, assignments: pd.DataFrame, show_ids: list[str] | 
         used_today = used_as_backup_today.setdefault(s.date, set())
         playing_elsewhere_today = playing_today.get(s.date, set())
 
+        piano_onsite = bool(data.facilities.at[s.facility_id, "has_piano_onsite"])
         candidates = [
             m for m in data.musicians.itertuples()
             if data.is_available(m.musician_id, s.show_id)
             and data.within_guardian_range(m.musician_id, s.facility_id)
+            and (m.instrument != "piano" or piano_onsite or m.brings_keyboard)
             and m.musician_id not in roster
             and m.musician_id not in used_today
             and m.musician_id not in playing_elsewhere_today

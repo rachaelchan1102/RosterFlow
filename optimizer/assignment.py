@@ -1,7 +1,8 @@
 """Phase 2: the assignment optimizer. Decides who plays each show and how many songs.
 
 True hard constraints (never relaxed): availability, guardian-distance for under-17s, one show
-per musician per day, and each musician's own minimum set length (everyone plays >= their min).
+per musician per day, each musician's own minimum set length (everyone plays >= their min), and
+a pianist at a facility with no piano onsite unless they bring their own keyboard.
 
 Everything else is a *soft* constraint with a weight. Two of these are release valves rather
 than targets — going over a musician's monthly cap, or asking them for more songs than their own
@@ -41,6 +42,7 @@ class Weights:
     fairness: int = 1_000          # per show of deviation from a musician's fair-share target
     extra_song_ask: int = 200      # per song asked beyond a musician's typical (comfortable) amount
     travel: int = 50               # per km
+    travel_efficiency: int = 30    # per km, per song short of their typical count, while assigned
     rotation: int = 20             # per repeat facility visit (recent history or within this solve)
 
 
@@ -49,12 +51,21 @@ class AssignmentResult:
     status: str                    # "OPTIMAL", "FEASIBLE", or "INFEASIBLE"
     objective_value: float | None
     assignments: pd.DataFrame      # show_id, musician_id, songs
-    show_flags: pd.DataFrame       # show_id, musician_count, has_pianist, songs_total, songs_target, fully_staffed
+    show_flags: pd.DataFrame       # show_id, musician_count, has_pianist, songs_total, songs_target, fully_staffed, at_target
 
 
 def compute_show_flags(data: Data, assignments: pd.DataFrame, show_ids: list[str] | None = None) -> pd.DataFrame:
     """Per-show staffing status from a roster alone — used after a solve, and again after a
-    cancellation edits the roster directly without re-solving."""
+    cancellation edits the roster directly without re-solving.
+
+    `fully_staffed` means the show cleared its MINIMUM headcount — the hard operational floor
+    the solver itself treats as a near-must (weights.fully_staffed, the heaviest penalty term).
+    `at_target` means it reached the location's full TARGET headcount — a softer, lower-weighted
+    goal in the solver (weights.target_headcount). These are genuinely different bars: a show at
+    5 of a 7-person target is real and workable (fully_staffed), just not at full strength (not
+    at_target). Reporting layers (KPIs, calendar status) need both, not just the first — treating
+    "cleared the minimum" as "fully staffed" in a headline number is what let a schedule with
+    several under-target shows report a misleading 100% fill rate."""
     ids = show_ids if show_ids is not None else list(data.shows[data.shows.period == "upcoming"].index)
     pianist_ids = set(data.musicians[data.musicians.instrument == "piano"].musician_id)
     rows = []
@@ -71,9 +82,11 @@ def compute_show_flags(data: Data, assignments: pd.DataFrame, show_ids: list[str
             songs_target=int(fac.songs_per_show),
             fully_staffed=(len(roster) >= int(fac.min_musicians) and songs_total >= int(fac.songs_per_show)
                           and has_pianist),
+            at_target=(len(roster) >= int(fac.target_musicians) and songs_total >= int(fac.songs_per_show)
+                      and has_pianist),
         ))
     return pd.DataFrame(rows, columns=["show_id", "musician_count", "has_pianist", "songs_total",
-                                       "songs_target", "fully_staffed"])
+                                       "songs_target", "fully_staffed", "at_target"])
 
 
 def solve_assignment(data: Data, show_ids: list[str] | None = None, weights: Weights | None = None,
@@ -81,12 +94,16 @@ def solve_assignment(data: Data, show_ids: list[str] | None = None, weights: Wei
                      locked: set[tuple[str, str]] | None = None,
                      banned: set[tuple[str, str]] | None = None,
                      banned_facilities: set[tuple[str, str]] | None = None,
-                     previous: pd.DataFrame | None = None) -> AssignmentResult:
+                     previous: pd.DataFrame | None = None,
+                     guardian_max_km: float | None = None) -> AssignmentResult:
     """`locked` / `banned` are (musician_id, show_id) pairs; `banned_facilities` are
     (musician_id, facility_id). A lock forces the pair on even if the availability data says
     otherwise — the coordinator heard it directly — but a ban always wins over a lock.
     `previous` (show_id, musician_id rows) is the schedule already in place: dropping any of
-    those pairs costs `weights.stability`, so a re-solve only moves people when it has to."""
+    those pairs costs `weights.stability`, so a re-solve only moves people when it has to.
+    `guardian_max_km` overrides `Data.within_guardian_range`'s own default (GUARDIAN_MAX_KM_DEFAULT
+    in data.py) for this solve only — used by the Network Cost Sensitivity scenario to ask "what
+    if the guardian-driving distance limit were tighter?" without changing the org-wide default."""
     weights = weights or Weights()
     locked, banned, banned_facilities = locked or set(), banned or set(), banned_facilities or set()
     shows = data.shows.loc[show_ids] if show_ids is not None else data.shows[data.shows.period == "upcoming"]
@@ -99,11 +116,23 @@ def solve_assignment(data: Data, show_ids: list[str] | None = None, weights: Wei
     def is_banned(m: str, s: str, f: str) -> bool:
         return (m, s) in banned or (m, f) in banned_facilities
 
+    def piano_ok(m: str, f: str) -> bool:
+        """A pianist can't play a facility with no piano in the room unless they bring their
+        own keyboard — never relaxed, since there's no soft version of "no instrument to play"."""
+        row = musicians.loc[m]
+        return (row.instrument != "piano" or bool(data.facilities.at[f, "has_piano_onsite"])
+                or bool(row.brings_keyboard))
+
+    def in_guardian_range(musician_id: str, facility_id: str) -> bool:
+        return (data.within_guardian_range(musician_id, facility_id, max_km=guardian_max_km)
+                if guardian_max_km is not None else data.within_guardian_range(musician_id, facility_id))
+
     pairs = [(m.musician_id, s.show_id) for s in shows.itertuples() for m in musicians.itertuples()
              if not is_banned(m.musician_id, s.show_id, s.facility_id)
+             and piano_ok(m.musician_id, s.facility_id)
              and (((m.musician_id, s.show_id) in locked)
                   or (data.is_available(m.musician_id, s.show_id)
-                      and data.within_guardian_range(m.musician_id, s.facility_id)))]
+                      and in_guardian_range(m.musician_id, s.facility_id)))]
     pairs_by_show: dict[str, list[tuple[str, str]]] = {}
     pairs_by_musician: dict[str, list[tuple[str, str]]] = {}
     for m, s in pairs:
@@ -228,6 +257,23 @@ def solve_assignment(data: Data, show_ids: list[str] | None = None, weights: Wei
     show_facility = shows["facility_id"]
     travel_terms = [x[(m, s)] * int(round(data.distance_to_facility(m, show_facility[s]))) for m, s in pairs]
     penalty_terms.append(weights.travel * sum(travel_terms))
+
+    # --- soft: travel efficiency — a long drive for only a token number of songs. `travel` above
+    # already discourages picking someone far away at all; this catches the case it can't: someone
+    # genuinely needed on a show (so `x` = 1 either way) who then only gets a couple of songs while
+    # everyone closer plays their full typical amount. Zero whenever they're not assigned (y is
+    # already forced to 0 by the x=0 case, so the shortfall term is too) or already at/above their
+    # typical count.
+    efficiency_terms = []
+    for m, s in pairs:
+        typical = int(musicians.loc[m, "typical_songs"])
+        km = int(round(data.distance_to_facility(m, show_facility[s])))
+        if typical <= 0 or km <= 0:
+            continue
+        shortfall = model.NewIntVar(0, typical, f"travelshort_{m}_{s}")
+        model.Add(shortfall >= typical * x[(m, s)] - y[(m, s)])
+        efficiency_terms.append(km * shortfall)
+    penalty_terms.append(weights.travel_efficiency * sum(efficiency_terms))
 
     # --- soft: rotation (recent-history repeats + repeats within this solve) ---
     hist = data.history_assignments.merge(data.shows[["facility_id", "date"]], left_on="show_id", right_index=True)

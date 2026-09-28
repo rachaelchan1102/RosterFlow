@@ -1,8 +1,8 @@
-facility_id,display_name,region,lat,lng,show_duration_min,songs_per_show,min_musicians,max_musicians,has_piano_onsite,preferred_slot,target_musicians
-LOC1,Location 1,Toronto-Downtown,43.6453,-79.3803,60,20,3,20,True,Sat 11:00,9
-LOC2,Location 2,North York,43.7717,-79.409,60,20,3,20,False,Tue 18:30,10
-LOC3,Location 3,Scarborough,43.777,-79.2729,45,15,3,15,True,Sun 14:00,7
-LOC4,Location 4,Etobicoke,43.6632,-79.5207,45,15,3,15,True,Thu 18:30,7
-LOC5,Location 5,Mississauga,43.6083,-79.6423,60,20,3,20,True,Sat 11:00,7
-LOC6,Location 6,Markham,43.868,-79.3245,60,20,3,20,True,Wed 18:30,8
-LOC7,Location 7,Vaughan,43.8465,-79.4779,60,20,3,20,True,Tue 18:30,9
+facility_id,display_name,region,lat,lng,show_duration_min,songs_per_show,min_musicians,max_musicians,has_piano_onsite,preferred_slot,target_musicians,address,contact_name,contact_phone,parking_notes,piano_notes,load_in_buffer_min,max_per_car
+LOC1,Sunnybrook Veterans Wing,Toronto-Downtown,43.6453,-79.3803,60,20,3,20,True,Sat 11:00,9,"2075 Bayview Ave, Toronto, ON",Marie Osei,(416) 555-2001,"Visitor lot off the side entrance, ask front desk for a pass.","Upright piano in the main hall, tuned quarterly.",15,3
+LOC2,Maple Grove Care Home,North York,43.7717,-79.409,60,20,3,20,False,Tue 18:30,10,"1200 Don Mills Rd, North York, ON",Robert Chen,(416) 555-2002,Street parking only after 4pm.,No piano on site — bring a keyboard.,15,3
+LOC3,Cedarview Retirement Residence,Scarborough,43.777,-79.2729,45,15,3,15,True,Sun 14:00,7,"3050 Ellesmere Rd, Scarborough, ON",Linda Farrow,(416) 555-2003,Small lot behind the building.,Grand piano in the activity room.,20,2
+LOC4,Willowdale Long-Term Care,Etobicoke,43.6632,-79.5207,45,15,3,15,True,Thu 18:30,7,"500 The East Mall, Etobicoke, ON",Grace Villanueva,(416) 555-2004,"Underground visitor parking, validate at reception.","Upright piano, a bit sticky on the high keys.",15,3
+LOC5,Harbourview Senior Living,Mississauga,43.6083,-79.6423,60,20,3,20,True,Sat 11:00,7,"100 City Centre Dr, Mississauga, ON",Tom Whitfield,(905) 555-2005,Plenty of free parking out front.,"Digital piano available, headphone jack for warmup.",15,3
+LOC6,Elmwood Manor,Markham,43.868,-79.3245,60,20,3,20,True,Wed 18:30,8,"8 Rouge Valley Dr, Markham, ON",Anna Kowalski,(905) 555-2006,"Lot fills up before 6pm, arrive early.",Upright piano near the west windows.,15,3
+LOC7,Riverside Gardens Care Centre,Vaughan,43.8465,-79.4779,60,20,3,20,True,Tue 18:30,9,"9401 Jane St, Vaughan, ON",Priya Ramesh,(905) 555-2007,Loading zone near the side door works for quick unload.,"Upright piano in the sunroom, tuned each spring.",15,3

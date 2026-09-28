@@ -34,8 +34,12 @@ from dataclasses import dataclass
 import numpy as np
 import pandas as pd
 
+from datetime import date, timedelta
+
 from optimizer.backups import assign_backups
 from optimizer.data import MAX_SHOWS_PER_DAY, Data
+
+MIN_LEAD_DAYS = 7   # a date suggested as an alternative needs real lead time to actually book
 
 DEFAULT_CANCEL_P = 1 / 8
 DEFAULT_N_RUNS = 5000
@@ -84,15 +88,24 @@ def _build_show_sim_data(data: Data, assignments: pd.DataFrame, backups: pd.Data
     )
 
 
-def _simulate_show(sim: _ShowSimData, cancellation_p: float, n_runs: int,
-                   rng: np.random.Generator) -> tuple[float, float]:
+def _simulate_show(sim: _ShowSimData, cancellation_p: float | np.ndarray, n_runs: int,
+                   rng: np.random.Generator) -> tuple[float, float, float]:
     """Vectorized across all n_runs for this one show — no pandas, no per-run Python loop.
-    Returns (share of runs fully staffed, average songs the set comes up short). A show that
-    isn't fully staffed still goes ahead — it just runs short — so the second number is the
-    real cost of a bad month."""
+    Returns (share of runs fully staffed, average songs the set comes up short, share of runs
+    with a pianist present). A show that isn't fully staffed still goes ahead — it just runs
+    short — so the second number is the real cost of a bad month. The third is a strict subset of
+    "fully staffed" (pianist coverage is one of its three conditions), broken out on its own so a
+    show that's fine on headcount/songs but structurally reliant on a single pianist can be seen
+    even when its overall fill_rate looks fine — see simulate_pianist_risk below.
+
+    `cancellation_p` is normally the module's one uniform scalar rate, but may instead be an
+    array broadcastable to (n_runs, n_roster) — simulate_regional_disruption passes a per-run,
+    per-roster-member rate that way, so a correlated event (everyone from one region cancelling
+    together on the same run) reuses this exact fill/pianist/backup-activation math unchanged,
+    rather than re-deriving it under a second, easily-drifting implementation."""
     n_roster = len(sim.roster_songs)
     if n_roster == 0:
-        return 0.0, float(sim.songs_target)
+        return 0.0, float(sim.songs_target), 0.0
 
     cancel = rng.random((n_runs, n_roster)) < cancellation_p    # shape (n_runs, n_roster)
     present = ~cancel
@@ -119,7 +132,7 @@ def _simulate_show(sim: _ShowSimData, cancellation_p: float, n_runs: int,
 
     filled = (covered_songs >= sim.songs_target) & (covered_count >= sim.min_musicians) & pianist_covered
     songs_short = np.maximum(sim.songs_target - covered_songs, 0)
-    return float(filled.mean()), float(songs_short.mean())
+    return float(filled.mean()), float(songs_short.mean()), float(pianist_covered.mean())
 
 
 def simulate_fill_rate(data: Data, assignments: pd.DataFrame, backups: pd.DataFrame,
@@ -131,8 +144,8 @@ def simulate_fill_rate(data: Data, assignments: pd.DataFrame, backups: pd.DataFr
     rng = np.random.default_rng(seed)
     rows = []
     for show_id in ids:
-        fill, songs_short = _simulate_show(_build_show_sim_data(data, assignments, backups, show_id),
-                                           cancellation_p, n_runs, rng)
+        fill, songs_short, _pianist_rate = _simulate_show(_build_show_sim_data(data, assignments, backups, show_id),
+                                                          cancellation_p, n_runs, rng)
         fac = data.facilities.loc[data.shows.at[show_id, "facility_id"]]
         minutes_per_song = float(fac.show_duration_min) / float(fac.songs_per_show)
         rows.append(dict(show_id=show_id, fill_rate=fill, minutes_short=songs_short * minutes_per_song))
@@ -155,6 +168,12 @@ class NewShowFeasibility:
     excluded_time: int            # usual weekly pattern doesn't cover this time slot (0 if no time given)
     mean_available_count: float
     mean_available_songs: float
+    # Availability-rate-weighted average distance from home to the facility, among the eligible
+    # pool — a musician who's rarely free that weekday contributes less to this than one who
+    # usually is, so it reads as "how far would the people who'd likely actually show up have to
+    # travel," not just a flat average over everyone technically eligible. Lower is cheaper and
+    # easier to get to. 0.0 when nobody's eligible (there's no pool to measure).
+    mean_travel_km: float
 
 
 def _empirical_weekday_availability_rates(data: Data, weekday: int) -> dict[str, float]:
@@ -235,11 +254,15 @@ def estimate_new_show_feasibility(data: Data, assignments: pd.DataFrame, facilit
     rates_by_id = _empirical_weekday_availability_rates(data, weekday)
     rates = np.array([rates_by_id[m.musician_id] for m in eligible])
     typical_songs = np.array([m.typical_songs for m in eligible], dtype=float)
-    is_pianist = np.array([m.musician_id in pianist_ids for m in eligible])
+    # A pianist only counts toward "has a pianist" here if they could actually play piano at this
+    # room — someone who plays piano but doesn't bring a keyboard is no help at a no-piano venue,
+    # same hard rule the real solver enforces (optimizer/assignment.py's piano_ok).
+    piano_here = bool(fac.has_piano_onsite)
+    is_pianist = np.array([m.musician_id in pianist_ids and (piano_here or m.brings_keyboard) for m in eligible])
 
     if len(eligible) == 0:
         probability = 0.0
-        mean_count = mean_songs = 0.0
+        mean_count = mean_songs = mean_travel_km = 0.0
     else:
         rng = np.random.default_rng(seed)
         available = rng.random((n_runs, len(eligible))) < rates    # shape (n_runs, len(eligible))
@@ -253,6 +276,10 @@ def estimate_new_show_feasibility(data: Data, assignments: pd.DataFrame, facilit
         mean_count = float(available_count.mean())
         mean_songs = float(available_songs.mean())
 
+        distances = np.array([data.distance_to_facility(m.musician_id, facility_id) for m in eligible])
+        rate_total = rates.sum()
+        mean_travel_km = float((distances * rates).sum() / rate_total) if rate_total > 0 else float(distances.mean())
+
     # Each person is counted under the first rule that rules them out, so the counts plus the
     # eligible pool add up to the whole roster instead of double-counting overlaps.
     over_cap_only = over_cap_ids - day_conflict_ids
@@ -264,6 +291,7 @@ def estimate_new_show_feasibility(data: Data, assignments: pd.DataFrame, facilit
         excluded_over_cap=len(over_cap_only), excluded_guardian_range=len(guardian_only),
         excluded_time=len(time_only),
         mean_available_count=mean_count, mean_available_songs=mean_songs,
+        mean_travel_km=mean_travel_km,
     )
 
 
@@ -278,9 +306,16 @@ def suggest_alternative_dates(data: Data, assignments: pd.DataFrame, facility_id
     included (offset 0), so "your original date is actually fine" is a possible, valid answer.
     """
     base = pd.Timestamp(requested_date)
+    earliest = date.today() + timedelta(days=MIN_LEAD_DAYS)
     results = []
     for offset in range(-window_days, window_days + 1):
-        candidate_date = (base + pd.Timedelta(days=offset)).date().isoformat()
+        candidate = (base + pd.Timedelta(days=offset)).date()
+        # The requested date itself is always checked, whatever it is — that's the coordinator's
+        # own choice to evaluate. A NEARBY alternative only gets suggested if there's still real
+        # lead time to book it; a "better" date that's already this week isn't a usable answer.
+        if offset != 0 and candidate < earliest:
+            continue
+        candidate_date = candidate.isoformat()
         if (data.shows["date"] == candidate_date).sum() >= MAX_SHOWS_PER_DAY:
             continue
         feas = estimate_new_show_feasibility(data, assignments, facility_id, candidate_date,
@@ -288,7 +323,7 @@ def suggest_alternative_dates(data: Data, assignments: pd.DataFrame, facility_id
                                              duration_min=duration_min)
         results.append((abs(offset), feas))
 
-    results.sort(key=lambda r: (-r[1].probability_fully_staffed, r[0]))
+    results.sort(key=lambda r: (-r[1].probability_fully_staffed, r[0], r[1].mean_travel_km))
     return [feas for _, feas in results[:top_n]]
 
 
@@ -307,3 +342,102 @@ def backups_needed_for_target(data: Data, assignments: pd.DataFrame, show_id: st
         if _simulate_show(sim, cancellation_p, n_runs, rng)[0] >= target_fill_rate:
             return n
     return None
+
+
+def simulate_pianist_risk(data: Data, assignments: pd.DataFrame, backups: pd.DataFrame,
+                          show_ids: list[str] | None = None, cancellation_p: float = DEFAULT_CANCEL_P,
+                          n_runs: int = DEFAULT_N_RUNS, seed: int | None = None) -> pd.DataFrame:
+    """Per show, over n_runs draws: the chance NO pianist is present after cancellations and
+    backup activation (roster + ranked backups, same model simulate_fill_rate uses). This is a
+    read on the CURRENT hard pianist requirement, not a new rule — it doesn't adopt the pianist
+    soft-preference proposal floated elsewhere, which would change what "pianist coverage" even
+    means; it just surfaces a number that model already computes internally but never exposed on
+    its own. A show can look fine on simulate_fill_rate's overall fill_rate while still being
+    structurally reliant on a single pianist — this is the number that catches that case."""
+    ids = show_ids if show_ids is not None else list(assignments.show_id.unique())
+    rng = np.random.default_rng(seed)
+    rows = []
+    for show_id in ids:
+        sim = _build_show_sim_data(data, assignments, backups, show_id)
+        _fill, _short, pianist_rate = _simulate_show(sim, cancellation_p, n_runs, rng)
+        n_pianists = int(sim.roster_is_pianist.sum() + sim.backup_is_pianist.sum())
+        # Coverage risk (above) and lineup variety are different problems: a show can have near-zero
+        # risk of losing its pianist and still be four pianists and a guitarist — fine only if the
+        # room actually has a piano for all of them to play. Both deterministic from the CURRENT
+        # roster, not simulated — no cancellation draw changes who's booked today.
+        facility_id = data.shows.at[show_id, "facility_id"]
+        rows.append(dict(show_id=show_id, pianist_risk=1.0 - pianist_rate, pianists_in_reach=n_pianists,
+                         non_pianists_booked=int(len(sim.roster_is_pianist) - sim.roster_is_pianist.sum()),
+                         has_piano_onsite=bool(data.facilities.at[facility_id, "has_piano_onsite"])))
+    return pd.DataFrame(rows, columns=["show_id", "pianist_risk", "pianists_in_reach",
+                                       "non_pianists_booked", "has_piano_onsite"])
+
+
+def buffer_sizing_report(data: Data, assignments: pd.DataFrame, backups: pd.DataFrame,
+                         show_ids: list[str] | None = None, target_fill_rate: float = 0.95,
+                         cancellation_p: float = DEFAULT_CANCEL_P, n_runs: int = 2000,
+                         max_backups: int = 8, seed: int | None = None) -> pd.DataFrame:
+    """Per show: how many named backups it has right now vs. how many backups_needed_for_target
+    says it would take to clear `target_fill_rate` — the UI surface `backups_needed_for_target`
+    was written for but never got (see this module's docstring). A different, deterministic seed
+    per show (derived from `seed`, when given) so a coordinator scanning down the list isn't
+    looking at the exact same random draw repeated for every row."""
+    ids = show_ids if show_ids is not None else list(assignments.show_id.unique())
+    rows = []
+    for i, show_id in enumerate(ids):
+        current = int((backups.show_id == show_id).sum())
+        show_seed = None if seed is None else seed + i
+        needed = backups_needed_for_target(data, assignments, show_id, target_fill_rate=target_fill_rate,
+                                           cancellation_p=cancellation_p, n_runs=n_runs,
+                                           max_backups=max_backups, seed=show_seed)
+        rows.append(dict(show_id=show_id, current_backups=current, backups_needed=needed))
+    return pd.DataFrame(rows, columns=["show_id", "current_backups", "backups_needed"])
+
+
+def simulate_regional_disruption(data: Data, assignments: pd.DataFrame, backups: pd.DataFrame, region: str,
+                                 show_ids: list[str] | None = None, disruption_p: float = 0.1,
+                                 disrupted_cancel_p: float = 0.7, normal_cancel_p: float = DEFAULT_CANCEL_P,
+                                 n_runs: int = DEFAULT_N_RUNS, seed: int | None = None) -> pd.DataFrame:
+    """"What if a single regional event (a storm, a transit outage) knocked out everyone who
+    lives in `region` at once, instead of cancellations happening independently the way
+    simulate_fill_rate assumes?" A structured, CORRELATED alternative to that uniform model,
+    scoped per show: each run draws one shared "is this show's region-`region` group disrupted"
+    event (probability `disruption_p`); when it hits, every roster member who lives in `region`
+    cancels together at `disrupted_cancel_p` instead of the normal independent `normal_cancel_p`,
+    while everyone else on the roster keeps the normal rate. Reuses _simulate_show's exact
+    fill/pianist/backup-activation math via its cancellation_p argument, which accepts a
+    broadcastable array for exactly this purpose — the only new logic here is building that array.
+
+    This deliberately does NOT correlate the same disruption draw across different shows that
+    happen to fall on the same calendar date (that would mean restructuring the whole engine
+    around date-level batches instead of independent per-show loops, a bigger change than this
+    module's per-show design). It answers "how exposed is THIS show to losing its region-`region`
+    people together," not "what does one storm do to the whole network in a single night."
+    Backups aren't part of the correlation: in this model they never have their own cancellation
+    event, they're only ever activated in rank order by how many roster members cancelled, so
+    there's nothing region-specific to draw for them. A show with nobody from `region` on its
+    roster is unaffected by construction and its `affected` flag says so, rather than silently
+    reporting a number the scenario never touched."""
+    ids = show_ids if show_ids is not None else list(assignments.show_id.unique())
+    rng = np.random.default_rng(seed)
+    home_region = data.musicians["home_region"]
+    rows = []
+    for show_id in ids:
+        sim = _build_show_sim_data(data, assignments, backups, show_id)
+        roster_ids = assignments.loc[assignments.show_id == show_id, "musician_id"].to_numpy()
+        from_region = np.array([home_region.get(m) == region for m in roster_ids])
+        affected = bool(from_region.any())
+
+        if affected:
+            disrupted = rng.random(n_runs) < disruption_p                          # shape (n_runs,)
+            per_person = np.where(from_region, disrupted_cancel_p, normal_cancel_p)  # shape (n_roster,)
+            cancel_p = np.where(disrupted[:, None], per_person[None, :], normal_cancel_p)  # (n_runs, n_roster)
+        else:
+            cancel_p = normal_cancel_p
+
+        fill, songs_short, _pianist = _simulate_show(sim, cancel_p, n_runs, rng)
+        fac = data.facilities.loc[data.shows.at[show_id, "facility_id"]]
+        minutes_per_song = float(fac.show_duration_min) / float(fac.songs_per_show)
+        rows.append(dict(show_id=show_id, fill_rate=fill, minutes_short=songs_short * minutes_per_song,
+                         affected=affected, from_region_count=int(from_region.sum())))
+    return pd.DataFrame(rows, columns=["show_id", "fill_rate", "minutes_short", "affected", "from_region_count"])

@@ -1,61 +1,61 @@
-musician_id,display_name,age,instrument,home_region,home_lat,home_lng,transport,can_drive,years_with_org,max_shows_per_month,min_songs,typical_songs,max_songs
-M01,Musician 1,15,piano,Vaughan,43.8389,-79.4746,guardian,False,0.4,4,1,3,6
-M02,Musician 2,20,piano,North York,43.7455,-79.3674,transit,False,1.3,4,1,2,3
-M03,Musician 3,22,piano,Markham,43.8569,-79.3308,transit,False,0.2,3,1,2,2
-M04,Musician 4,17,piano,Richmond Hill,43.9274,-79.4352,transit,False,1.3,4,1,3,3
-M05,Musician 5,14,cello,Etobicoke,43.6721,-79.5114,guardian,False,1.0,4,1,3,5
-M06,Musician 6,15,guitar,Toronto-Downtown,43.6845,-79.3836,guardian,False,2.4,4,1,2,4
-M07,Musician 7,20,piano,North York,43.7421,-79.3971,transit,False,0.6,1,1,3,5
-M08,Musician 8,20,piano,North York,43.7729,-79.451,car,True,2.3,2,1,2,5
-M09,Musician 9,19,cello,Mississauga,43.6083,-79.6665,car,True,3.7,2,1,3,3
-M10,Musician 10,15,piano,Toronto-Downtown,43.6608,-79.3533,guardian,False,3.7,1,1,3,5
-M11,Musician 11,18,piano,Scarborough,43.7735,-79.2817,car,True,3.9,3,1,3,4
-M12,Musician 12,18,piano,Pickering,43.7961,-79.1077,car,True,3.3,4,1,3,5
-M13,Musician 13,18,piano,Toronto-Downtown,43.6467,-79.4012,transit,False,1.7,2,1,3,5
-M14,Musician 14,21,piano,Toronto-Downtown,43.6148,-79.4093,car,True,3.0,4,1,3,4
-M15,Musician 15,18,guitar,North York,43.7366,-79.4174,car,True,1.2,2,1,2,5
-M16,Musician 16,20,piano,Pickering,43.8287,-79.094,car,True,0.2,2,1,2,4
-M17,Musician 17,18,piano,Toronto-Downtown,43.6594,-79.3597,car,True,2.0,4,1,3,4
-M18,Musician 18,19,piano,Pickering,43.8371,-79.0272,car,True,0.2,2,1,2,5
-M19,Musician 19,20,piano,Scarborough,43.7478,-79.2362,car,True,0.4,4,1,3,6
-M20,Musician 20,12,piano,Richmond Hill,43.8659,-79.4321,guardian,False,3.1,2,1,3,5
-M21,Musician 21,16,violin,Mississauga,43.5931,-79.6106,guardian,False,1.5,3,1,3,4
-M22,Musician 22,16,piano,Toronto-Downtown,43.6149,-79.3734,guardian,False,1.5,2,1,2,4
-M23,Musician 23,15,piano,North York,43.7588,-79.4311,guardian,False,3.8,4,1,2,3
-M24,Musician 24,17,piano,Markham,43.8688,-79.2951,transit,False,2.1,3,1,2,2
-M25,Musician 25,23,piano,Markham,43.8798,-79.3536,transit,False,0.5,3,1,3,6
-M26,Musician 26,14,piano,Mississauga,43.6046,-79.6714,guardian,False,3.8,4,1,3,5
-M27,Musician 27,21,piano,Toronto-Downtown,43.6628,-79.394,transit,False,2.4,1,1,2,3
-M28,Musician 28,11,piano,North York,43.7831,-79.3978,guardian,False,2.1,4,1,2,3
-M29,Musician 29,16,piano,Etobicoke,43.6823,-79.5613,guardian,False,0.5,2,1,2,5
-M30,Musician 30,18,piano,Etobicoke,43.6669,-79.5314,transit,False,3.6,4,1,3,5
-M31,Musician 31,20,piano,Scarborough,43.7527,-79.263,car,True,3.7,3,1,3,3
-M32,Musician 32,20,piano,Toronto-Downtown,43.6351,-79.3964,transit,False,1.5,4,1,3,5
-M33,Musician 33,20,piano,Etobicoke,43.6668,-79.5089,transit,False,0.5,3,1,3,5
-M34,Musician 34,16,piano,Etobicoke,43.6762,-79.552,guardian,False,1.8,3,1,2,3
-M35,Musician 35,16,piano,Scarborough,43.7805,-79.2545,guardian,False,4.0,4,1,3,3
-M36,Musician 36,21,piano,Markham,43.874,-79.3272,car,True,0.1,2,1,3,5
-M37,Musician 37,17,guitar,Vaughan,43.8439,-79.4936,transit,False,0.1,1,1,2,4
-M38,Musician 38,13,piano,Markham,43.8341,-79.3596,guardian,False,0.2,4,1,3,4
-M39,Musician 39,13,piano,Brampton,43.7359,-79.7273,guardian,False,0.2,2,1,3,6
-M40,Musician 40,14,piano,Mississauga,43.6171,-79.6382,guardian,False,0.6,3,1,3,3
-M41,Musician 41,19,piano,Markham,43.8528,-79.3139,transit,False,0.2,3,1,3,5
-M42,Musician 42,18,cello,North York,43.7234,-79.3914,car,True,3.9,3,1,3,6
-M43,Musician 43,20,piano,North York,43.7562,-79.4034,car,True,1.2,3,1,2,5
-M44,Musician 44,16,piano,North York,43.7823,-79.4023,guardian,False,1.6,3,1,3,4
-M45,Musician 45,18,piano,Etobicoke,43.6514,-79.5168,car,True,2.4,3,1,3,4
-M46,Musician 46,20,piano,North York,43.7282,-79.4515,car,True,1.7,3,1,3,6
-M47,Musician 47,16,piano,Toronto-Downtown,43.6308,-79.373,guardian,False,2.6,3,1,3,5
-M48,Musician 48,19,guitar,North York,43.7813,-79.4328,transit,False,2.1,3,1,3,5
-M49,Musician 49,15,piano,Oakville,43.4674,-79.6817,guardian,False,3.2,2,1,3,5
-M50,Musician 50,16,piano,Scarborough,43.7822,-79.2467,guardian,False,0.2,2,1,3,6
-M51,Musician 51,16,piano,Markham,43.8538,-79.3113,guardian,False,0.1,4,1,2,4
-M52,Musician 52,13,piano,Oakville,43.4769,-79.7016,guardian,False,1.5,4,1,3,5
-M53,Musician 53,19,piano,Richmond Hill,43.893,-79.4568,transit,False,1.6,3,1,2,4
-M54,Musician 54,16,piano,Mississauga,43.5969,-79.6266,guardian,False,3.3,4,1,2,4
-M55,Musician 55,18,piano,North York,43.7422,-79.3833,car,True,1.6,1,1,3,4
-M56,Musician 56,19,piano,Toronto-Downtown,43.6813,-79.3872,car,True,0.2,2,1,3,3
-M57,Musician 57,19,guitar,Vaughan,43.8292,-79.487,car,True,1.0,4,1,2,2
-M58,Musician 58,20,piano,Etobicoke,43.6449,-79.5232,car,True,2.2,2,1,3,5
-M59,Musician 59,17,piano,Scarborough,43.7811,-79.2541,transit,False,3.6,3,1,3,5
-M60,Musician 60,16,piano,Oakville,43.4233,-79.6821,guardian,False,2.5,2,1,3,6
+musician_id,display_name,age,instrument,home_region,home_lat,home_lng,transport,can_drive,years_with_org,max_shows_per_month,min_songs,typical_songs,max_songs,phone,email,guardian_name,guardian_phone,brings_keyboard,household_id,secondary_instruments
+M01,Zoe Martinez,15,piano,Vaughan,43.8389,-79.4746,guardian,False,0.4,4,1,3,6,(289) 555-1000,zoe.martinez@example.org,David Martinez,(416) 555-8074,False,,voice
+M02,William Novak,20,piano,North York,43.7455,-79.3674,transit,False,1.3,4,1,2,3,(905) 555-1001,william.novak@example.org,,,False,,voice
+M03,Fatima Petrov,22,piano,Markham,43.8569,-79.3308,transit,False,0.2,3,1,2,2,(416) 555-1002,fatima.petrov@example.org,,,False,,voice
+M04,Jack Mensah,17,piano,Richmond Hill,43.9274,-79.4352,transit,False,1.3,4,1,3,3,(647) 555-1003,jack.mensah@example.org,,,False,,"voice, guitar"
+M05,Harper Osei,14,cello,Etobicoke,43.6721,-79.5114,guardian,False,1.0,4,1,3,5,(905) 555-1004,harper.osei@example.org,Jennifer Osei,(647) 555-3828,False,HH-OSEI,
+M06,Abigail Singh,15,guitar,Toronto-Downtown,43.6845,-79.3836,guardian,False,2.4,4,1,2,4,(647) 555-1005,abigail.singh@example.org,Karen Singh,(416) 555-7543,False,,
+M07,Ahmed Andersson,20,piano,North York,43.7421,-79.3971,transit,False,0.6,1,1,3,5,(289) 555-1006,ahmed.andersson@example.org,,,False,,
+M08,Nina Abara,20,piano,North York,43.7729,-79.451,car,True,2.3,2,1,2,5,(289) 555-1007,nina.abara@example.org,,,False,,
+M09,Sebastian Mercer,19,cello,Mississauga,43.6083,-79.6665,car,True,3.7,2,1,3,3,(289) 555-1008,sebastian.mercer@example.org,,,False,,
+M10,Benjamin Rossi,15,piano,Toronto-Downtown,43.6608,-79.3533,guardian,False,3.7,1,1,3,5,(647) 555-1009,benjamin.rossi@example.org,Linda Rossi,(289) 555-2260,True,,
+M11,Lucas Kowalski,18,piano,Scarborough,43.7735,-79.2817,car,True,3.9,3,1,3,4,(905) 555-1010,lucas.kowalski@example.org,,,False,,
+M12,Lily Hensley,18,piano,Pickering,43.7961,-79.1077,car,True,3.3,4,1,3,5,(647) 555-1011,lily.hensley@example.org,,,False,,
+M13,Matthew Chen,18,piano,Toronto-Downtown,43.6467,-79.4012,transit,False,1.7,2,1,3,5,(647) 555-1012,matthew.chen@example.org,,,True,,
+M14,Wyatt Ivanov,21,piano,Toronto-Downtown,43.6148,-79.4093,car,True,3.0,4,1,3,4,(905) 555-1013,wyatt.ivanov@example.org,,,False,,
+M15,Victoria Wong,18,guitar,North York,43.7366,-79.4174,car,True,1.2,2,1,2,5,(289) 555-1014,victoria.wong@example.org,,,False,,
+M16,Luke Rodriguez,20,piano,Pickering,43.8287,-79.094,car,True,0.2,2,1,2,4,(289) 555-1015,luke.rodriguez@example.org,,,True,,
+M17,Noah Dubois,18,piano,Toronto-Downtown,43.6594,-79.3597,car,True,2.0,4,1,3,4,(905) 555-1016,noah.dubois@example.org,,,True,,
+M18,Elijah Abernathy,19,piano,Pickering,43.8371,-79.0272,car,True,0.2,2,1,2,5,(647) 555-1017,elijah.abernathy@example.org,,,False,,
+M19,Priya Costa,20,piano,Scarborough,43.7478,-79.2362,car,True,0.4,4,1,3,6,(647) 555-1018,priya.costa@example.org,,,False,,
+M20,Ava Bernard,12,piano,Richmond Hill,43.8659,-79.4321,guardian,False,3.1,2,1,3,5,(289) 555-1019,ava.bernard@example.org,Susan Bernard,(416) 555-3791,False,,
+M21,Daniel Muller,16,violin,Mississauga,43.5931,-79.6106,guardian,False,1.5,3,1,3,4,(416) 555-1020,daniel.muller@example.org,Robert Muller,(416) 555-6597,False,,
+M22,Mia Nguyen,16,piano,Toronto-Downtown,43.6149,-79.3734,guardian,False,1.5,2,1,2,4,(416) 555-1021,mia.nguyen@example.org,Patricia Nguyen,(289) 555-3805,False,,
+M23,Omar Patel,15,piano,North York,43.7588,-79.4311,guardian,False,3.8,4,1,2,3,(416) 555-1022,omar.patel@example.org,Maria Patel,(905) 555-8630,False,,
+M24,Ella Kim,17,piano,Markham,43.8688,-79.2951,transit,False,2.1,3,1,2,2,(647) 555-1023,ella.kim@example.org,,,False,,
+M25,Samuel Whitfield,23,piano,Markham,43.8798,-79.3536,transit,False,0.5,3,1,3,6,(647) 555-1024,samuel.whitfield@example.org,,,True,,
+M26,Scarlett Ferrari,14,piano,Mississauga,43.6046,-79.6714,guardian,False,3.8,4,1,3,5,(289) 555-1025,scarlett.ferrari@example.org,Susan Ferrari,(647) 555-7719,False,,
+M27,Olivia Park,21,piano,Toronto-Downtown,43.6628,-79.394,transit,False,2.4,1,1,2,3,(416) 555-1026,olivia.park@example.org,,,False,,
+M28,Nora Garcia,11,piano,North York,43.7831,-79.3978,guardian,False,2.1,4,1,2,3,(289) 555-1027,nora.garcia@example.org,Thomas Garcia,(905) 555-4276,False,,
+M29,Henry Ali,16,piano,Etobicoke,43.6823,-79.5613,guardian,False,0.5,2,1,2,5,(289) 555-1028,henry.ali@example.org,Karen Ali,(647) 555-9841,False,,
+M30,Wei Kumar,18,piano,Etobicoke,43.6669,-79.5314,transit,False,3.6,4,1,3,5,(289) 555-1029,wei.kumar@example.org,,,False,,
+M31,Evelyn Tanaka,20,piano,Scarborough,43.7527,-79.263,car,True,3.7,3,1,3,3,(905) 555-1030,evelyn.tanaka@example.org,,,False,,
+M32,Chloe Jansen,20,piano,Toronto-Downtown,43.6351,-79.3964,transit,False,1.5,4,1,3,5,(416) 555-1031,chloe.jansen@example.org,,,False,,
+M33,Joseph Okafor,20,piano,Etobicoke,43.6668,-79.5089,transit,False,0.5,3,1,3,5,(416) 555-1032,joseph.okafor@example.org,,,False,,
+M34,Grace Lee,16,piano,Etobicoke,43.6762,-79.552,guardian,False,1.8,3,1,2,3,(905) 555-1033,grace.lee@example.org,Barbara Lee,(416) 555-2759,True,,
+M35,Aubrey Schmidt,16,piano,Scarborough,43.7805,-79.2545,guardian,False,4.0,4,1,3,3,(905) 555-1034,aubrey.schmidt@example.org,Elizabeth Schmidt,(416) 555-4940,True,,
+M36,Charlotte Khan,21,piano,Markham,43.874,-79.3272,car,True,0.1,2,1,3,5,(416) 555-1035,charlotte.khan@example.org,,,True,,
+M37,Jackson Yamamoto,17,guitar,Vaughan,43.8439,-79.4936,transit,False,0.1,1,1,2,4,(905) 555-1036,jackson.yamamoto@example.org,,,False,,
+M38,Layla Prescott,13,piano,Markham,43.8341,-79.3596,guardian,False,0.2,4,1,3,4,(289) 555-1037,layla.prescott@example.org,Richard Prescott,(905) 555-8611,False,,
+M39,Riley Caldwell,13,piano,Brampton,43.7359,-79.7273,guardian,False,0.2,2,1,3,6,(647) 555-1038,riley.caldwell@example.org,Michael Caldwell,(289) 555-6392,True,,
+M40,Mei Silva,14,piano,Mississauga,43.6171,-79.6382,guardian,False,0.6,3,1,3,3,(289) 555-1039,mei.silva@example.org,David Silva,(289) 555-2645,False,,
+M41,Aiden Martinez,19,piano,Markham,43.8528,-79.3139,transit,False,0.2,3,1,3,5,(416) 555-1040,aiden.martinez@example.org,,,False,,
+M42,Addison Novak,18,cello,North York,43.7234,-79.3914,car,True,3.9,3,1,3,6,(905) 555-1041,addison.novak@example.org,,,False,,
+M43,Diego Petrov,20,piano,North York,43.7562,-79.4034,car,True,1.2,3,1,2,5,(647) 555-1042,diego.petrov@example.org,,,True,,
+M44,Emma Mensah,16,piano,North York,43.7823,-79.4023,guardian,False,1.6,3,1,3,4,(416) 555-1043,emma.mensah@example.org,John Mensah,(905) 555-6729,False,,
+M45,Alexander Osei,18,piano,Etobicoke,43.6514,-79.5168,car,True,2.4,3,1,3,4,(905) 555-1044,alexander.osei@example.org,,,True,HH-OSEI,
+M46,David Singh,20,piano,North York,43.7282,-79.4515,car,True,1.7,3,1,3,6,(647) 555-1045,david.singh@example.org,,,False,,
+M47,Ethan Andersson,16,piano,Toronto-Downtown,43.6308,-79.373,guardian,False,2.6,3,1,3,5,(647) 555-1046,ethan.andersson@example.org,Patricia Andersson,(416) 555-2375,True,,
+M48,Aria Abara,19,guitar,North York,43.7813,-79.4328,transit,False,2.1,3,1,3,5,(905) 555-1047,aria.abara@example.org,,,False,,
+M49,Arjun Mercer,15,piano,Oakville,43.4674,-79.6817,guardian,False,3.2,2,1,3,5,(647) 555-1048,arjun.mercer@example.org,Robert Mercer,(905) 555-2653,True,,
+M50,Owen Rossi,16,piano,Scarborough,43.7822,-79.2467,guardian,False,0.2,2,1,3,6,(416) 555-1049,owen.rossi@example.org,Robert Rossi,(416) 555-5113,False,,
+M51,Sophia Kowalski,16,piano,Markham,43.8538,-79.3113,guardian,False,0.1,4,1,2,4,(905) 555-1050,sophia.kowalski@example.org,Jennifer Kowalski,(289) 555-7207,False,,
+M52,Sofia Hensley,13,piano,Oakville,43.4769,-79.7016,guardian,False,1.5,4,1,3,5,(289) 555-1051,sofia.hensley@example.org,Richard Hensley,(647) 555-5032,True,,
+M53,Isabella Chen,19,piano,Richmond Hill,43.893,-79.4568,transit,False,1.6,3,1,2,4,(416) 555-1052,isabella.chen@example.org,,,False,,
+M54,Amelia Ivanov,16,piano,Mississauga,43.5969,-79.6266,guardian,False,3.3,4,1,2,4,(416) 555-1053,amelia.ivanov@example.org,Richard Ivanov,(647) 555-7490,False,,
+M55,Logan Wong,18,piano,North York,43.7422,-79.3833,car,True,1.6,1,1,3,4,(905) 555-1054,logan.wong@example.org,,,True,,
+M56,James Rodriguez,19,piano,Toronto-Downtown,43.6813,-79.3872,car,True,0.2,2,1,3,3,(905) 555-1055,james.rodriguez@example.org,,,True,,
+M57,John Dubois,19,guitar,Vaughan,43.8292,-79.487,car,True,1.0,4,1,2,2,(647) 555-1056,john.dubois@example.org,,,False,,
+M58,Liam Abernathy,20,piano,Etobicoke,43.6449,-79.5232,car,True,2.2,2,1,3,5,(416) 555-1057,liam.abernathy@example.org,,,False,,
+M59,Mason Costa,17,piano,Scarborough,43.7811,-79.2541,transit,False,3.6,3,1,3,5,(647) 555-1058,mason.costa@example.org,,,False,,
+M60,Hannah Bernard,16,piano,Oakville,43.4233,-79.6821,guardian,False,2.5,2,1,3,6,(416) 555-1059,hannah.bernard@example.org,Jennifer Bernard,(416) 555-6990,True,,

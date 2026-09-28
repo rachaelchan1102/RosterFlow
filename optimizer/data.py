@@ -8,6 +8,7 @@ into a `load_from_db`, not touching anything downstream.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import date, timedelta
 from pathlib import Path
 
 import pandas as pd
@@ -17,10 +18,13 @@ from optimizer.geo import fallback_road_distance_km
 REQUIRED_COLUMNS = {
     "facilities": ["facility_id", "display_name", "region", "lat", "lng", "show_duration_min",
                    "songs_per_show", "target_musicians", "min_musicians", "max_musicians",
-                   "has_piano_onsite", "preferred_slot"],
+                   "has_piano_onsite", "preferred_slot", "address", "contact_name", "contact_phone",
+                   "parking_notes", "piano_notes", "load_in_buffer_min", "max_per_car"],
     "musicians": ["musician_id", "display_name", "age", "instrument", "home_region", "home_lat",
                   "home_lng", "transport", "can_drive", "years_with_org", "max_shows_per_month",
-                  "min_songs", "typical_songs", "max_songs"],
+                  "min_songs", "typical_songs", "max_songs", "phone", "email",
+                  "guardian_name", "guardian_phone", "brings_keyboard", "household_id",
+                  "secondary_instruments"],
     "shows": ["show_id", "facility_id", "date", "start_time", "duration_min", "period"],
     "availability": ["musician_id", "show_id", "available"],
     "weekly_availability": ["musician_id", "weekday", "start_time", "end_time"],
@@ -30,6 +34,14 @@ REQUIRED_COLUMNS = {
 }
 GUARDIAN_MAX_KM_DEFAULT = 35
 MAX_SHOWS_PER_DAY = 3   # org-wide limit — no more than 3 facilities can run a show on the same date
+# How far out a NEW show can be booked, in days — a rolling window from today, not a fixed
+# calendar cutoff, so it advances on its own as today moves forward rather than needing a slot
+# to be "opened" by hand each week. Only checked on add/edit of an "upcoming" show (see
+# _check_booking_window below), never on the whole table, so an existing show already on the
+# books doesn't start failing validation retroactively just because its date has since passed.
+# ~4 months, not ~2: a coordinator booking a December holiday concert from September needs that
+# lead time, and a facility asking "can you do December?" in September is routine, not an edge case.
+BOOKING_HORIZON_DAYS = 120
 
 
 class DataValidationError(ValueError):
@@ -44,7 +56,11 @@ class RecordConflictError(ValueError):
 
 def load_from_csv(csv_dir: str | Path) -> "Data":
     csv_dir = Path(csv_dir)
-    raw = {name: pd.read_csv(csv_dir / f"{name}.csv") for name in REQUIRED_COLUMNS}
+    # keep_default_na=False: every text field here (guardian_name, parking_notes, ...) can be
+    # legitimately blank — pandas' default NaN-for-empty-string behavior would otherwise turn
+    # those into floats mid-table and crash JSON serialization (nan isn't valid JSON) the moment
+    # any row actually had a blank one, rather than at load time where the mistake is obvious.
+    raw = {name: pd.read_csv(csv_dir / f"{name}.csv", keep_default_na=False) for name in REQUIRED_COLUMNS}
     problems = _validate(raw)
     if problems:
         raise DataValidationError("\n".join(problems))
@@ -267,9 +283,60 @@ class Data:
 # `data` passed in is completely untouched, nothing is left half-applied.
 # ---------------------------------------------------------------------------
 
+def to_tables(data: Data) -> dict[str, pd.DataFrame]:
+    """Public entry point for a caller outside this module that needs to serialize a whole `Data`
+    snapshot — the audit log's revert history, specifically."""
+    return _to_raw_tables(data)
+
+
+def from_tables(raw: dict[str, pd.DataFrame]) -> Data:
+    """The inverse of `to_tables`. Assumes `raw` already passed validation once (it came from a
+    `Data` that was itself already valid), so this skips re-running `_validate`."""
+    return _build_data(raw)
+
+
 def add_musician(data: Data, musician: dict) -> Data:
     raw = _to_raw_tables(data)
     raw["musicians"] = pd.concat([raw["musicians"], pd.DataFrame([musician])], ignore_index=True)
+    return _validate_and_build(raw)
+
+
+def bulk_add_musicians(data: Data, musicians: list[dict]) -> Data:
+    """The same add, for a whole spreadsheet's worth of new roster members at once — one
+    validation pass over the combined table instead of one call per row, so a typo in row 40
+    doesn't leave the first 39 already committed. Each dict may carry a `_weekly_availability`
+    key (a list of {weekday, start_time, end_time}) — popped off before the musicians table is
+    built, then appended to weekly_availability separately, so a bulk import can seed each new
+    musician's recurring pattern instead of leaving every one of them with none at all."""
+    raw = _to_raw_tables(data)
+    windows_by_row = [m.pop("_weekly_availability", []) for m in musicians]
+    raw["musicians"] = pd.concat([raw["musicians"], pd.DataFrame(musicians)], ignore_index=True)
+    new_windows = [dict(musician_id=m["musician_id"], **w) for m, windows in zip(musicians, windows_by_row) for w in windows]
+    if new_windows:
+        raw["weekly_availability"] = pd.concat([raw["weekly_availability"], pd.DataFrame(new_windows)], ignore_index=True)
+    return _validate_and_build(raw)
+
+
+def add_facility(data: Data, facility: dict) -> Data:
+    """A brand-new location mid-season — distances from it to every existing musician are filled
+    in automatically by the same haversine fallback _build_data already runs for a new musician's
+    distances to every existing facility (see _fill_missing_musician_facility_distances), so this
+    needs no separate distance-computation step of its own."""
+    raw = _to_raw_tables(data)
+    raw["facilities"] = pd.concat([raw["facilities"], pd.DataFrame([facility])], ignore_index=True)
+    return _validate_and_build(raw)
+
+
+def update_facility(data: Data, facility_id: str, changes: dict) -> Data:
+    """Editing a location's own record — address, contact, parking/piano notes, its usual slot,
+    and its target/min/max headcount."""
+    raw = _to_raw_tables(data)
+    facilities = raw["facilities"]
+    if facility_id not in facilities["facility_id"].values:
+        raise RecordConflictError(f"facility_id {facility_id!r} does not exist")
+    idx = facilities.index[facilities.facility_id == facility_id][0]
+    for col, value in changes.items():
+        facilities.loc[idx, col] = value
     return _validate_and_build(raw)
 
 
@@ -302,9 +369,27 @@ def delete_musician(data: Data, musician_id: str) -> Data:
     return _validate_and_build(raw)
 
 
+def _check_booking_window(show_date: str, period: str) -> None:
+    """A new or rescheduled 'upcoming' show must land from today through BOOKING_HORIZON_DAYS out
+    — never in the past, and not so far ahead that availability that far out hasn't meaningfully
+    been asked yet. 'history' shows (already played) are exempt; they're allowed to be in the
+    past because that's the point of them."""
+    if period != "upcoming":
+        return
+    today = date.today().isoformat()
+    horizon = (date.today() + timedelta(days=BOOKING_HORIZON_DAYS)).isoformat()
+    if show_date < today:
+        raise RecordConflictError(f"{show_date} is in the past — a show can't be scheduled before today.")
+    if show_date > horizon:
+        raise RecordConflictError(
+            f"{show_date} is more than {BOOKING_HORIZON_DAYS} days from today. The booking window "
+            "rolls forward with today, so try again once that date is closer.")
+
+
 def add_show(data: Data, show: dict) -> Data:
     """`show` needs its own show_id — this layer doesn't generate one, since a UI or a Neon
     sequence is better placed to guarantee uniqueness than a guess made here."""
+    _check_booking_window(show["date"], show.get("period", "upcoming"))
     raw = _to_raw_tables(data)
     raw["shows"] = pd.concat([raw["shows"], pd.DataFrame([show])], ignore_index=True)
     return _validate_and_build(raw)
@@ -316,6 +401,10 @@ def update_show(data: Data, show_id: str, changes: dict) -> Data:
     if show_id not in shows["show_id"].values:
         raise RecordConflictError(f"show_id {show_id!r} does not exist")
     idx = shows.index[shows.show_id == show_id][0]
+    if "date" in changes or "period" in changes:
+        new_date = changes.get("date", shows.at[idx, "date"])
+        new_period = changes.get("period", shows.at[idx, "period"])
+        _check_booking_window(new_date, new_period)
     for col, value in changes.items():
         shows.loc[idx, col] = value
     return _validate_and_build(raw)
@@ -334,6 +423,20 @@ def delete_show(data: Data, show_id: str) -> Data:
     return _validate_and_build(raw)
 
 
+def record_attendance(data: Data, show_id: str, records: list[dict]) -> Data:
+    """Who actually showed up, after the fact — separate from `confirmed` (said yes beforehand)
+    and from being on the draft (the solver/coordinator's plan). Replaces any existing check-in
+    for this show rather than appending, so re-checking someone in corrects the record instead of
+    duplicating it; feeds both rotation fairness (recent_facility_counts) and volunteer hours."""
+    raw = _to_raw_tables(data)
+    if show_id not in raw["shows"]["show_id"].values:
+        raise RecordConflictError(f"show_id {show_id!r} does not exist")
+    hist = raw["history_assignments"]
+    hist = hist[hist.show_id != show_id]
+    raw["history_assignments"] = pd.concat([hist, pd.DataFrame(records)], ignore_index=True)
+    return _validate_and_build(raw)
+
+
 def set_show_availability(data: Data, musician_id: str, show_id: str, available: bool) -> Data:
     """One musician's yes/no for one show — how a cancellation gets recorded, so a later
     re-solve doesn't put the person who just dropped out straight back on the show."""
@@ -346,6 +449,23 @@ def set_show_availability(data: Data, musician_id: str, show_id: str, available:
         raw["availability"] = pd.concat(
             [av, pd.DataFrame([dict(musician_id=musician_id, show_id=show_id, available=int(available))])],
             ignore_index=True)
+    return _validate_and_build(raw)
+
+
+def bulk_set_show_availability(data: Data, pairs: list[tuple[str, str]], available: bool) -> Data:
+    """The same edit as set_show_availability, for many (musician_id, show_id) pairs in one pass
+    — a coordinator marking a whole group unavailable for every show on a given date (a holiday,
+    a school exam block) shouldn't mean one validated rebuild per person."""
+    raw = _to_raw_tables(data)
+    av = raw["availability"]
+    pair_set = set(pairs)
+    mask = av.apply(lambda r: (r.musician_id, r.show_id) in pair_set, axis=1) if len(av) else pd.Series(dtype=bool)
+    if mask.any():
+        av.loc[mask, "available"] = int(available)
+    existing = set(zip(av.musician_id, av.show_id))
+    new_rows = [dict(musician_id=m, show_id=s, available=int(available)) for m, s in pairs if (m, s) not in existing]
+    if new_rows:
+        raw["availability"] = pd.concat([av, pd.DataFrame(new_rows)], ignore_index=True)
     return _validate_and_build(raw)
 
 

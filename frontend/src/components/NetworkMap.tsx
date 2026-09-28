@@ -41,7 +41,7 @@ function arcPoints(from: [number, number], to: [number, number], bend = 0.14): [
 
 /** Re-centers when the day's pins change, so a date with shows clustered elsewhere doesn't leave
  *  the map staring at empty ocean. */
-function FitBounds({ points }: { points: [number, number][] }) {
+export function FitBounds({ points }: { points: [number, number][] }) {
   const map = useMap();
   useEffect(() => {
     if (points.length === 0) return;
@@ -61,7 +61,7 @@ export default function NetworkMap({ facilities, routes }: { facilities: Network
   routes.forEach((r) => byGroup.set(r.group, [...(byGroup.get(r.group) ?? []), r]));
 
   return (
-    <div className="network-map">
+    <div className="network-map" role="group" aria-label={`Route map: ${facilities.length} location${facilities.length !== 1 ? "s" : ""}, ${routes.length} trip${routes.length !== 1 ? "s" : ""}. See the table below the map for the same data as text.`}>
       <MapContainer center={points[0]} zoom={10} scrollWheelZoom={false} style={{ height: "100%", width: "100%" }}>
         <TileLayer attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
                   url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
@@ -113,6 +113,17 @@ export default function NetworkMap({ facilities, routes }: { facilities: Network
           <StatusBadge status="green" /> <StatusBadge status="amber" /> <StatusBadge status="red" />
         </span>
       </div>
+      <table className="sr-only">
+        <caption>Locations shown on the route map</caption>
+        <thead><tr><th>Location</th><th>Time</th><th>Musicians</th><th>Status</th></tr></thead>
+        <tbody>
+          {facilities.map((f) => (
+            <tr key={f.show_id}>
+              <td>{f.name}</td><td>{f.start_time}</td><td>{f.musician_count}/{f.target_musicians}</td><td>{f.status}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   );
 }

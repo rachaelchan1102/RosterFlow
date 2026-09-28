@@ -45,6 +45,10 @@ class Registry:
     def coordinator_configured(self) -> bool:
         return bool(self._dsn and self._password)
 
+    @property
+    def dsn(self) -> str | None:
+        return self._dsn
+
     # ------------------------------------------------------------------ playground
 
     def warm_up(self) -> None:
@@ -104,8 +108,10 @@ class Registry:
                         "`python -m backend.seed_db --help`.")
                 ws = Workspace(load_from_db(dsn),
                                save_data=lambda data: save_to_db(data, dsn),
-                               save_state=lambda w: persistence.save_state(dsn, w))
+                               save_state=lambda w: persistence.save_state(dsn, w),
+                               save_audit=lambda entry: persistence.append_audit_entry(dsn, entry))
                 persistence.load_state(dsn, ws)
+                persistence.load_audit_log(dsn, ws)
                 self._coordinator = ws
             self._coordinator.last_used = time.monotonic()
             return self._coordinator

@@ -20,7 +20,8 @@ ROTATION_LOOKBACK_MONTHS = 3
 
 @dataclass
 class Kpis:
-    fill_rate: float                    # % of shows fully staffed as planned
+    fill_rate: float                    # % of shows at their full TARGET headcount, songs and pianist
+    minimum_met_rate: float             # % of shows that at least cleared the minimum operational floor
     backup_coverage: float              # % of shows with 3 backups incl. a pianist
     capacity_utilization_mean: float    # share of monthly cap used, averaged across musicians
     capacity_utilization_spread: float  # std dev across musicians -> the fairness spread indicator
@@ -83,7 +84,8 @@ def compute_kpis(data: Data, assignment_result: AssignmentResult, cars: list[Car
     util_mean, util_spread, _ = compute_capacity_utilization(data, assignment_result.assignments)
     net = compute_network_cost(cars, solo_transit)
     return Kpis(
-        fill_rate=float(assignment_result.show_flags.fully_staffed.mean()),
+        fill_rate=float(assignment_result.show_flags.at_target.mean()),
+        minimum_met_rate=float(assignment_result.show_flags.fully_staffed.mean()),
         backup_coverage=float(backup_result.show_flags.backup_ready.mean()),
         capacity_utilization_mean=util_mean, capacity_utilization_spread=util_spread,
         total_cars=net["total_cars"], total_car_km=net["total_car_km"],

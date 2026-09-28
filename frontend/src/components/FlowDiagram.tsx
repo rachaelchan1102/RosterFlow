@@ -6,11 +6,20 @@ const WIDTH = 720;
 const COL_LEFT = 190;
 const COL_RIGHT = 530;
 
-/** Musician trips flowing from home region into each location, as a two-column flow diagram.
- *  One hue, by design: this encodes magnitude (trip volume), not identity, so link width and
- *  opacity carry the value and every node is named directly — no legend needed for one series. */
+function heat(ratio: number): string {
+  // Same green/amber/red vocabulary would be wrong here (this isn't a status), so volume gets its
+  // own single-hue scale — light for barely-there, solid accent for the busiest cell.
+  const alpha = 0.08 + 0.72 * ratio;
+  return `rgba(42, 120, 214, ${alpha.toFixed(2)})`;
+}
+
+/** Musician trips flowing from home region into each location. Defaults to a region × location
+ *  heatmap table — sortable, every label fully readable — with the two-column flow diagram as an
+ *  optional view, not the default: at 28+ shows the diagram's labels ran a few pixels tall and
+ *  clipped ("Riverside Gardens Care Centre · 2"), and the table reads faster for "which pairing is
+ *  the outlier" anyway. */
 export default function FlowDiagram({ nodes, links }: { nodes: FlowNode[]; links: FlowLink[] }) {
-  const [asTable, setAsTable] = useState(false);
+  const [view, setView] = useState<"heatmap" | "diagram" | "list">("heatmap");
   const regions = nodes.filter((n) => n.kind === "region");
   const facilities = nodes.filter((n) => n.kind === "facility");
   const totalFor = (id: string) => links.reduce((sum, l) => sum + (l.source === id || l.target === id ? l.value : 0), 0);
@@ -25,14 +34,53 @@ export default function FlowDiagram({ nodes, links }: { nodes: FlowNode[]; links
   const yFor = (list: FlowNode[], id: string) => 10 + list.findIndex((n) => n.id === id) * ROW_H + ROW_H / 2;
   const maxValue = Math.max(1, ...links.map((l) => l.value));
   const sortedLinks = [...links].sort((a, b) => b.value - a.value);
+  const cellFor = new Map(links.map((l) => [`${l.source}|${l.target}`, l]));
 
   return (
     <div className="flow-diagram">
       <div className="flow-diagram-head">
-        <p className="small muted">Line width and darkness show trip volume — home region on the left, location on the right.</p>
-        <button className="link-button" onClick={() => setAsTable(!asTable)}>{asTable ? "View as diagram" : "View as table"}</button>
+        <p className="small muted">
+          {view === "heatmap" ? "Darker cells mean more trips on that region → location pairing."
+            : view === "list" ? "Every region → location pairing, busiest first."
+            : "Line width and darkness show trip volume — home region on the left, location on the right."}
+        </p>
+        <span className="view-toggle" role="tablist">
+          <button role="tab" aria-selected={view === "heatmap"} className={view === "heatmap" ? "active" : ""}
+                  onClick={() => setView("heatmap")}>Heatmap</button>
+          <button role="tab" aria-selected={view === "list"} className={view === "list" ? "active" : ""}
+                  onClick={() => setView("list")}>List</button>
+          <button role="tab" aria-selected={view === "diagram"} className={view === "diagram" ? "active" : ""}
+                  onClick={() => setView("diagram")}>Diagram</button>
+        </span>
       </div>
-      {asTable ? (
+      {view === "heatmap" ? (
+        <div className="heatmap-scroll">
+          <table className="data-table flow-heatmap">
+            <thead>
+              <tr>
+                <th className="heatmap-corner">Home region</th>
+                {sortedFacilities.map((f) => <th key={f.id} title={f.label}>{f.label}</th>)}
+              </tr>
+            </thead>
+            <tbody>
+              {sortedRegions.map((r) => (
+                <tr key={r.id}>
+                  <th className="row-label">{r.label}</th>
+                  {sortedFacilities.map((f) => {
+                    const l = cellFor.get(`${r.id}|${f.id}`);
+                    return (
+                      <td key={f.id} style={l ? { background: heat(l.value / maxValue) } : undefined}
+                          title={l ? `${r.label} → ${f.label}: ${l.value} trip${l.value !== 1 ? "s" : ""} · avg ${l.avg_km.toFixed(1)} km` : undefined}>
+                        {l ? l.value : ""}
+                      </td>
+                    );
+                  })}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : view === "list" ? (
         <table className="data-table flow-table">
           <thead><tr><th>Home region</th><th>Location</th><th>Trips</th><th>Avg km</th><th>Total km</th></tr></thead>
           <tbody>
