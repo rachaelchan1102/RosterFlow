@@ -5,6 +5,7 @@ import type { Change } from "./types";
 
 export type Panel =
   | { kind: "show"; id: string }
+  | { kind: "showList"; list: "seats" | "backups"; start: string; end: string }
   | { kind: "musician"; id: string }
   | { kind: "addShow"; date?: string; facilityId?: string }
   | { kind: "editShow"; id: string }

@@ -32,8 +32,7 @@ export function updateNowAction(
         .then((r) => {
           refresh();
           setLastUpdateChanges(r.changes.length > 0 ? r.changes : null);
-          showToast(updateResultMessage(r.changes, r.still_short)
-            + (r.changes.length ? ' See "What changed" in the top bar.' : ""));
+          showToast(updateResultMessage(r.changes, r.still_short));
         })
         .catch((e: Error) => showToast(`Couldn't update the schedule: ${e.message}`));
     },

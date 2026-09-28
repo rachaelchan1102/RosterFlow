@@ -1,34 +1,47 @@
 :root {
-  --page: #f7f6f3;
-  --surface: #ffffff;
-  --card: #f0efec;
-  --text-primary: #111110;
-  --text-secondary: #52514e;
-  --text-muted: #898781;
-  --border: #e3e1da;
-  --accent: #2a78d6;
-  --accent-soft: #e6f0fb;
-  /* Chart series that aren't status — never red/amber/green, which only ever mean show status. */
-  --neutral-series: #8d96a3;
-  /* How a trip happens on the network map (identity, not status) — validated as a set for
-     all-pairs colorblind separation. Grouped by whether the ride is shared, not by who's
-     driving: a solo trip is still "by car" whether a guardian or the rider themself drives. */
-  --mode-carpool: #2a78d6;
-  --mode-solo: #eb6834;
-  --mode-transit: #1baf7a;
+  /* RosterFlow palette: warm paper, near-black ink, one blue accent, and two alert colors that
+     only ever mean "below target" (warn) and "nothing left to fall back on" (bad). */
+  --paper: #f5f4f0;
+  --paper-2: #fbfaf8;
+  --ink: #17181b;
+  --ink-2: #55565c;
+  --ink-3: #8b8b90;
+  --rule: #dddbd4;
+  --rule-2: #e9e7e1;
+  --hover: #efeee9;
+  --field: #cfccc3;
+  --nav-active: #e6e4de;
+  --warn: #a86b12;
+  --bad: #b0402f;
+  --accent: #2c4a86;
+  --accent-soft: #e7ebf3;
+  --mark-ok: #b9b8b3;
+  --bar-free: #c9c7c0;
+  --mono: "JetBrains Mono", ui-monospace, monospace;
 
-  /* One status language, used identically on every screen (calendar chip, KPI tile, badge, callout). */
-  --green: #0c8a0c;
-  --green-soft: #e7f5e7;
-  --amber: #b37a00;
-  --amber-mark: #fab219;
-  --amber-soft: #fef4d8;
-  --red: #c93434;
-  --red-soft: #fbe6e6;
+  /* Older names still used by forms and inline styles, mapped onto the palette above. */
+  --page: var(--paper);
+  --surface: var(--paper-2);
+  --card: var(--hover);
+  --text-primary: var(--ink);
+  --text-secondary: var(--ink-2);
+  --text-muted: var(--ink-3);
+  --border: var(--rule);
+  --neutral-series: var(--bar-free);
+  --mode-carpool: var(--accent);
+  --mode-solo: var(--warn);
+  --mode-transit: var(--ink-2);
+  --green: var(--ink-2);
+  --green-soft: var(--hover);
+  --amber: var(--warn);
+  --amber-mark: var(--warn);
+  --amber-soft: #f6efe3;
+  --red: var(--bad);
+  --red-soft: #f6e8e5;
 
-  font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
-  color: var(--text-primary);
-  background: var(--page);
+  font: 14px/1.45 "Archivo", system-ui, sans-serif;
+  color: var(--ink);
+  background: var(--paper);
   -webkit-font-smoothing: antialiased;
 }
 
@@ -38,10 +51,27 @@
 
 body {
   margin: 0;
+  background: var(--paper);
 }
 
 button,
 input,
-select {
+select,
+textarea {
   font: inherit;
+  color: inherit;
+}
+
+a {
+  color: var(--accent);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+a:hover {
+  color: var(--ink);
+}
+
+input[type="range"] {
+  accent-color: var(--accent);
 }

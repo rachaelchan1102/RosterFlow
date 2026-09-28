@@ -2,7 +2,6 @@ import "leaflet/dist/leaflet.css";
 import { Fragment, useEffect } from "react";
 import { CircleMarker, MapContainer, Polyline, Popup, TileLayer, useMap } from "react-leaflet";
 import type { NetworkFacility, NetworkRoute } from "../types";
-import { StatusBadge } from "./Status";
 
 // Colored by whether the ride is shared, not by who's driving — a solo trip is "by car" whether
 // a guardian or the rider themself drives, and "carpool" covers both peer- and guardian-driven
@@ -11,8 +10,8 @@ type DisplayMode = "carpool" | "solo" | "transit";
 const MODE_COLOR: Record<DisplayMode, string> = {
   carpool: "var(--mode-carpool)", solo: "var(--mode-solo)", transit: "var(--mode-transit)",
 };
-const MODE_LABEL: Record<DisplayMode, string> = { carpool: "Carpool", solo: "Solo (car)", transit: "Transit" };
-const STATUS_FILL: Record<string, string> = { green: "var(--green)", amber: "var(--amber-mark)", red: "var(--red)" };
+const MODE_LABEL: Record<DisplayMode, string> = { carpool: "Shared ride", solo: "Driving alone", transit: "Transit" };
+const STATUS_FILL: Record<string, string> = { green: "#8b8b90", amber: "#a86b12", red: "#b0402f" };
 
 function displayMode(ride: NetworkRoute[]): DisplayMode {
   if (ride[0].mode === "transit") return "transit";
@@ -54,8 +53,9 @@ export function FitBounds({ points }: { points: [number, number][] }) {
 /** Facility pins for one date, plus a line for every musician's trip home → location, colored by
  *  whether the ride is shared. The single most recognizable "this is logistics software" visual. */
 export default function NetworkMap({ facilities, routes }: { facilities: NetworkFacility[]; routes: NetworkRoute[] }) {
+  // Fit the sites AND everyone's home, so no route runs off the edge of the map.
   const points: [number, number][] = facilities.length
-    ? facilities.map((f) => [f.lat, f.lng] as [number, number])
+    ? [...facilities.map((f) => [f.lat, f.lng] as [number, number]), ...routes.map((r) => [r.from_lat, r.from_lng] as [number, number])]
     : [[43.7, -79.42]];
   const byGroup = new Map<string, NetworkRoute[]>();
   routes.forEach((r) => byGroup.set(r.group, [...(byGroup.get(r.group) ?? []), r]));
@@ -77,7 +77,8 @@ export default function NetworkMap({ facilities, routes }: { facilities: Network
                   clearly over OSM's own busy road colors, without needing a paid, key-gated basemap.
                   Purely visual: interactive is off, and the wide invisible line below carries clicks. */}
               <Polyline positions={line} pathOptions={{ color: "#fff", weight: weight + 2.5, opacity: 0.9 }} interactive={false} />
-              <Polyline positions={line} pathOptions={{ color: MODE_COLOR[mode], weight, opacity: 0.95 }} interactive={false} />
+              <Polyline positions={line} interactive={false}
+                        pathOptions={{ color: MODE_COLOR[mode], weight, opacity: 0.95, dashArray: mode === "transit" ? "6 6" : undefined }} />
               {/* Invisible and much wider than the visible line, so tapping near a route — not
                   its exact pixel — registers. Every line in the same ride shares this popup:
                   click any one of them (each rider's home is a different point) and see who
@@ -100,18 +101,13 @@ export default function NetworkMap({ facilities, routes }: { facilities: Network
           </CircleMarker>
         ))}
       </MapContainer>
-      <div className="network-legend">
-        <span className="network-legend-group">
-          {(["carpool", "solo", "transit"] as const).map((mode) => (
-            <span key={mode} className="network-legend-item">
-              <span className="network-legend-swatch" style={{ background: MODE_COLOR[mode] }} />
-              {MODE_LABEL[mode]}
-            </span>
-          ))}
-        </span>
-        <span className="network-legend-group">
-          <StatusBadge status="green" /> <StatusBadge status="amber" /> <StatusBadge status="red" />
-        </span>
+      <div className="map-legend">
+        {(["carpool", "solo", "transit"] as const).map((mode) => (
+          <span key={mode} className="map-legend-item">
+            <span className={`map-legend-line ${mode}`} />
+            {MODE_LABEL[mode]}
+          </span>
+        ))}
       </div>
       <table className="sr-only">
         <caption>Locations shown on the route map</caption>
