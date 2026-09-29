@@ -47,13 +47,13 @@ function LoginDialog({ onClose }: { onClose: () => void }) {
           <span className="login-kicker">Music for the Golden Age</span>
           <h2 id="login-title">Are you part of the team?</h2>
           <p className="muted">
-            Log in with the team password to see and edit the real schedule. Changes you make there are saved.
+            Log in with the team password to see and edit the real schedule.
           </p>
         </div>
         <label>Your name
           {/* autoComplete="username" so a password manager files the team password under this name. */}
           <input type="text" name="username" autoComplete="username" maxLength={40} autoFocus={!name}
-                 value={name} onChange={(e) => setName(e.target.value)} placeholder="So the team knows who changed what" />
+                 value={name} onChange={(e) => setName(e.target.value)} />
         </label>
         <label>Team password
           <span className="password-field">
