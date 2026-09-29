@@ -11,11 +11,9 @@ schedule the coordinator can review, tweak and publish.
 **Live demo:** https://rosterflow-phi.vercel.app. It opens on made-up sample data you can click
 around in freely; your changes reset when you refresh.
 
-> **⚠️ All data in the demo is fake. Please don't contact anyone listed in it.**
-> The musicians, guardians, phone numbers, emails and facility contacts are all made up and are
-> not real people. Some locations use the names and addresses of real care homes so the map and
-> travel distances look realistic, but those homes have nothing to do with this project, and the
-> shows, contacts and schedules attached to them are fictional.
+> **⚠️ All data in the demo is fake. Please don't contact anyone listed in it.** Some real
+> care home names and addresses are used for the map, but they aren't affiliated with Music for the
+> Golden Age.
 
 ## What it does
 
