@@ -37,46 +37,56 @@ def registry() -> Registry:
 
 def test_wrong_password_is_refused(registry):
     with pytest.raises(PermissionError):
-        registry.login("nope", client="1.2.3.4")
+        registry.login("Sam", "nope", client="1.2.3.4")
 
 
 def test_login_survives_a_restart(registry):
-    token, expires_at = registry.login(PASSWORD, client="1.2.3.4")
+    token, login = registry.login("Sam", PASSWORD, client="1.2.3.4")
     restarted = Registry(SAMPLE, dsn=DSN, password=PASSWORD)
-    assert restarted.session_expiry(token) == expires_at
+    assert restarted.session(token) == login
+
+
+def test_login_remembers_the_name_typed(registry):
+    token, _ = registry.login("  Rachael   C ", PASSWORD, client="1.2.3.4")
+    assert Registry(SAMPLE, dsn=DSN, password=PASSWORD).session(token).name == "Rachael C"
+
+
+def test_a_name_is_required(registry):
+    with pytest.raises(ValueError):
+        registry.login("   ", PASSWORD, client="1.2.3.4")
 
 
 def test_token_is_not_stored_in_the_database(registry):
-    token, _ = registry.login(PASSWORD, client="1.2.3.4")
+    token, _ = registry.login("Sam", PASSWORD, client="1.2.3.4")
     with psycopg.connect(DSN) as conn:
         keys = [r[0] for r in conn.execute("SELECT key FROM coordinator_sessions")]
     assert keys and token not in keys
 
 
 def test_logout_ends_only_that_login(registry):
-    a, _ = registry.login(PASSWORD, client="1.2.3.4")
-    b, _ = registry.login(PASSWORD, client="1.2.3.4")
+    a, _ = registry.login("Sam", PASSWORD, client="1.2.3.4")
+    b, _ = registry.login("Sam", PASSWORD, client="1.2.3.4")
     registry.logout(a)
     assert not registry.is_valid_token(a)
     assert registry.is_valid_token(b)
 
 
 def test_logout_everywhere(registry):
-    a, _ = registry.login(PASSWORD, client="1.2.3.4")
-    b, _ = registry.login(PASSWORD, client="5.6.7.8")
+    a, _ = registry.login("Sam", PASSWORD, client="1.2.3.4")
+    b, _ = registry.login("Sam", PASSWORD, client="5.6.7.8")
     registry.logout_everywhere()
     assert not registry.is_valid_token(a)
     assert not registry.is_valid_token(b)
 
 
 def test_changing_the_password_ends_existing_logins(registry):
-    token, _ = registry.login(PASSWORD, client="1.2.3.4")
+    token, _ = registry.login("Sam", PASSWORD, client="1.2.3.4")
     rotated = Registry(SAMPLE, dsn=DSN, password="a brand new shared password")
     assert not rotated.is_valid_token(token)
 
 
 def test_expired_login_is_refused(registry):
-    token, _ = registry.login(PASSWORD, client="1.2.3.4")
+    token, _ = registry.login("Sam", PASSWORD, client="1.2.3.4")
     with psycopg.connect(DSN) as conn:
         conn.execute("UPDATE coordinator_sessions SET expires_at = now() - interval '1 minute'")
         conn.commit()
@@ -86,22 +96,22 @@ def test_expired_login_is_refused(registry):
 def test_repeated_wrong_passwords_are_throttled_per_client(registry):
     for _ in range(LOGIN_MAX_FAILURES):
         with pytest.raises(PermissionError):
-            registry.login("nope", client="1.2.3.4")
+            registry.login("Sam", "nope", client="1.2.3.4")
     # Locked out now, even with the right password...
     with pytest.raises(TooManyAttemptsError):
-        registry.login(PASSWORD, client="1.2.3.4")
+        registry.login("Sam", PASSWORD, client="1.2.3.4")
     # ...but only from that client.
-    token, _ = registry.login(PASSWORD, client="5.6.7.8")
+    token, _ = registry.login("Sam", PASSWORD, client="5.6.7.8")
     assert registry.is_valid_token(token)
 
 
 def test_throttling_is_shared_between_copies_of_the_backend(registry):
     for _ in range(LOGIN_MAX_FAILURES):
         with pytest.raises(PermissionError):
-            registry.login("nope", client="1.2.3.4")
+            registry.login("Sam", "nope", client="1.2.3.4")
     other_copy = Registry(SAMPLE, dsn=DSN, password=PASSWORD)
     with pytest.raises(TooManyAttemptsError):
-        other_copy.login(PASSWORD, client="1.2.3.4")
+        other_copy.login("Sam", PASSWORD, client="1.2.3.4")
 
 
 def test_unconfigured_server_has_no_logins():

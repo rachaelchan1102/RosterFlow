@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import threading
 import time
+from contextvars import ContextVar
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Callable
@@ -66,6 +67,13 @@ class Snapshot:
     needs_resolve: str | None
 
 
+# The name the logged-in coordinator typed at login, set per request by backend/main.py (None in
+# the playground and on a musician's self-service link). A ContextVar rather than a Workspace
+# attribute because the coordinator workspace is shared: two requests at once would otherwise
+# stamp each other's names on their activity entries.
+current_actor: ContextVar[str | None] = ContextVar("current_actor", default=None)
+
+
 @dataclass
 class AuditEntry:
     """One entry in the workspace's version history — a "commit," not a single Ctrl+Z step.
@@ -76,6 +84,7 @@ class AuditEntry:
     description: str
     fill_seconds: float | None     # time from noticing to resolving, for a cancellation entry
     snapshot: Snapshot
+    by: str | None = None          # who made the change, as typed at login
 
 
 class Workspace:
@@ -636,7 +645,8 @@ class Workspace:
     def _record(self, description: str, snapshot: Snapshot, fill_seconds: float | None = None) -> None:
         self._audit_seq += 1
         entry = AuditEntry(id=self._audit_seq, at=datetime.now(timezone.utc).isoformat(),
-                           description=description, fill_seconds=fill_seconds, snapshot=snapshot)
+                           description=description, fill_seconds=fill_seconds, snapshot=snapshot,
+                           by=current_actor.get())
         self.audit_log.append(entry)
         if self._save_audit:
             self._save_audit(entry)

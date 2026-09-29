@@ -10,6 +10,7 @@ import pytest
 
 from backend import persistence
 from backend.registry import Registry
+from backend.workspace import current_actor
 
 DSN = os.environ.get("TEST_DSN")
 SAMPLE = Path(__file__).resolve().parent.parent / "sample_data"
@@ -53,3 +54,17 @@ def test_playground_starts_from_the_saved_solve_without_solving():
     reg = Registry(SAMPLE, dsn=None, password=None)
     assert reg._saved_playground_draft() is not None, "run `python -m backend.build_playground_draft`"
     assert not reg.playground("s1").draft.assignments.empty
+
+
+def test_activity_entries_remember_who_made_them():
+    a, _ = copies()
+    musician = a.coordinator().data.musicians.index[0]
+    facility = a.coordinator().data.facilities.index[0]
+    reset = current_actor.set("Rachael")
+    try:
+        a.coordinator().add_ban(musician, "facility", facility)
+    finally:
+        current_actor.reset(reset)
+    a.coordinator().remove_ban(musician, "facility", facility)   # nobody set: recorded without a name
+    log = Registry(SAMPLE, dsn=DSN, password="pw").coordinator().audit_log
+    assert [e.by for e in log[-2:]] == ["Rachael", None]

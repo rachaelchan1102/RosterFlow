@@ -38,7 +38,9 @@ interface AppState {
   coordinatorAvailable: boolean;
   /** When the current coordinator login expires (ISO timestamp), or null in the playground. */
   loginExpiresAt: string | null;
-  login: (password: string) => Promise<void>;
+  /** The name the logged-in coordinator typed at login, or null in the playground. */
+  loginName: string | null;
+  login: (name: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
   /** Ends every coordinator login on every device, this one included. */
   logoutEverywhere: () => Promise<void>;
@@ -134,6 +136,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [mode, setMode] = useState<Mode>("playground");
   const [coordinatorAvailable, setCoordinatorAvailable] = useState(false);
   const [loginExpiresAt, setLoginExpiresAt] = useState<string | null>(null);
+  const [loginName, setLoginName] = useState<string | null>(null);
   const [version, setVersion] = useState(0);
   const [needsUpdate, setNeedsUpdate] = useState<string | null>(null);
   const [lastUpdateChanges, setLastUpdateChanges] = useState<Change[] | null>(null);
@@ -175,7 +178,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const loadSession = useCallback(() => {
-    api<{ mode: Mode; coordinator_available: boolean; expires_at: string | null }>("/api/session").then((s) => {
+    api<{ mode: Mode; coordinator_available: boolean; expires_at: string | null; name: string | null }>("/api/session").then((s) => {
       // A login saved in this browser that the server no longer honours (expired, logged out
       // everywhere, or the password changed) — drop it, or every later request would 401.
       if (s.mode === "playground" && getToken()) {
@@ -185,6 +188,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setMode(s.mode);
       setCoordinatorAvailable(s.coordinator_available);
       setLoginExpiresAt(s.expires_at);
+      setLoginName(s.name);
     }).catch(() => setCoordinatorAvailable(false));
   }, [showToast]);
 
@@ -193,6 +197,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     const onExpired = () => {
       setMode("playground");
       setLoginExpiresAt(null);
+      setLoginName(null);
       setPanels([]);
       refresh();
       showToast("Your coordinator login has ended — you're on sample data. Log in again to get back to the real schedule.");
@@ -235,13 +240,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setLastUpdateChanges(null);
   };
 
-  const login = async (password: string) => {
-    const { token, expires_at, loaded } = await api<{
-      token: string; expires_at: string; loaded: { musicians: number; facilities: number; upcoming_shows: number };
-    }>("/api/login", { method: "POST", body: { password } });
+  const login = async (name: string, password: string) => {
+    const { token, expires_at, name: savedName, loaded } = await api<{
+      token: string; expires_at: string; name: string;
+      loaded: { musicians: number; facilities: number; upcoming_shows: number };
+    }>("/api/login", { method: "POST", body: { name, password } });
     setToken(token);
     setMode("coordinator");
     setLoginExpiresAt(expires_at);
+    setLoginName(savedName);
     resetView();
     refresh();
     showToast(`Logged in to the real schedule: ${loaded.musicians} musicians, ${loaded.facilities} locations, `
@@ -253,6 +260,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setToken(null);
     setMode("playground");
     setLoginExpiresAt(null);
+    setLoginName(null);
     resetView();
     refresh();
   };
@@ -262,6 +270,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setToken(null);
     setMode("playground");
     setLoginExpiresAt(null);
+    setLoginName(null);
     resetView();
     refresh();
     showToast("Logged out on every device. Anyone using the real schedule will need the password again.");
@@ -337,7 +346,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   return (
     <AppContext.Provider
       value={{
-        mode, coordinatorAvailable, loginExpiresAt, login, logout, logoutEverywhere, version, refresh, needsUpdate,
+        mode, coordinatorAvailable, loginExpiresAt, loginName, login, logout, logoutEverywhere, version, refresh, needsUpdate,
         lastUpdateChanges, setLastUpdateChanges,
         panels, panelTitles, setPanelTitle,
         panelDirty, setPanelDirty,

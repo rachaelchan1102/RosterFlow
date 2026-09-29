@@ -142,9 +142,10 @@ def append_audit_entry(dsn: str, entry: AuditEntry) -> None:
     re-save history that hasn't changed every time one new thing happens."""
     with psycopg.connect(dsn) as conn:
         conn.execute(
-            "INSERT INTO schedule_audit (id, at, description, fill_seconds, snapshot) VALUES (%s, %s, %s, %s, %s) "
-            "ON CONFLICT (id) DO NOTHING",
-            (entry.id, entry.at, entry.description, entry.fill_seconds, Jsonb(_snapshot_to_json(entry.snapshot))))
+            "INSERT INTO schedule_audit (id, at, description, fill_seconds, snapshot, by_name) "
+            "VALUES (%s, %s, %s, %s, %s, %s) ON CONFLICT (id) DO NOTHING",
+            (entry.id, entry.at, entry.description, entry.fill_seconds, Jsonb(_snapshot_to_json(entry.snapshot)),
+             entry.by))
         conn.commit()
 
 
@@ -153,10 +154,10 @@ def load_audit_log(dsn: str, ws: Workspace) -> None:
     it left off so new entries never collide with ones from a previous run of the server."""
     with psycopg.connect(dsn) as conn:
         rows = conn.execute(
-            "SELECT id, at, description, fill_seconds, snapshot FROM schedule_audit ORDER BY id").fetchall()
+            "SELECT id, at, description, fill_seconds, snapshot, by_name FROM schedule_audit ORDER BY id").fetchall()
     ws.restore_audit_log([
         AuditEntry(id=r[0], at=r[1].isoformat(), description=r[2], fill_seconds=r[3],
-                  snapshot=_snapshot_from_json(r[4] if isinstance(r[4], dict) else json.loads(r[4])))
+                  snapshot=_snapshot_from_json(r[4] if isinstance(r[4], dict) else json.loads(r[4])), by=r[5])
         for r in rows
     ])
 
@@ -186,19 +187,21 @@ def musician_id_for_token(dsn: str, token: str) -> str | None:
 # Coordinator logins (see schema.sql's coordinator_sessions comment for what `key` is)
 # ---------------------------------------------------------------------------
 
-def create_coordinator_session(dsn: str, key: str, expires_at: datetime) -> None:
+def create_coordinator_session(dsn: str, key: str, name: str, expires_at: datetime) -> None:
     with psycopg.connect(dsn) as conn:
         conn.execute("DELETE FROM coordinator_sessions WHERE expires_at <= now()")
-        conn.execute("INSERT INTO coordinator_sessions (key, expires_at) VALUES (%s, %s)", (key, expires_at))
+        conn.execute("INSERT INTO coordinator_sessions (key, name, expires_at) VALUES (%s, %s, %s)",
+                     (key, name, expires_at))
         conn.commit()
 
 
-def coordinator_session_expiry(dsn: str, key: str) -> datetime | None:
-    """When this login expires, or None if it doesn't exist or already has."""
+def coordinator_session(dsn: str, key: str) -> tuple[datetime, str] | None:
+    """(expires_at, name) for this login, or None if it doesn't exist or has expired."""
     with psycopg.connect(dsn) as conn:
-        row = conn.execute("SELECT expires_at FROM coordinator_sessions WHERE key = %s AND expires_at > now()",
-                           (key,)).fetchone()
-    return row[0] if row else None
+        row = conn.execute(
+            "SELECT expires_at, name FROM coordinator_sessions WHERE key = %s AND expires_at > now()",
+            (key,)).fetchone()
+    return (row[0], row[1]) if row else None
 
 
 def delete_coordinator_session(dsn: str, key: str) -> None:

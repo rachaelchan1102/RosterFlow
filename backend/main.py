@@ -21,6 +21,7 @@ import numpy as np
 import pandas as pd
 import psycopg
 from fastapi import Body, Depends, FastAPI, Header, HTTPException, Request
+from fastapi.concurrency import run_in_threadpool
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
@@ -28,7 +29,7 @@ from pydantic import BaseModel
 from backend import persistence, views
 from backend.env import load_env_file
 from backend.registry import NotConfiguredError, Registry, TooManyAttemptsError
-from backend.workspace import Workspace, WorkspaceError
+from backend.workspace import Workspace, WorkspaceError, current_actor
 from optimizer.data import (BOOKING_HORIZON_DAYS, MAX_SHOWS_PER_DAY, RecordConflictError, add_facility, add_musician,
                             add_show, bulk_add_musicians, bulk_set_show_availability, delete_musician, delete_show,
                             set_weekly_availability, update_facility, update_musician, update_show)
@@ -50,7 +51,17 @@ async def lifespan(_app: FastAPI):
     yield
 
 
-app = FastAPI(title="Multi-Site Staffing & Routing Optimizer API", lifespan=lifespan)
+async def note_who_is_acting(authorization: str | None = Header(default=None)) -> None:
+    """Stamps each request with the logged-in coordinator's name, for activity entries it records
+    (see workspace.current_actor). Async on purpose: a value set here carries into the endpoint,
+    where a sync dependency's would stay behind in its own worker thread."""
+    token = _bearer(authorization)
+    login = await run_in_threadpool(registry.session, token) if token else None
+    current_actor.set(login.name if login else None)
+
+
+app = FastAPI(title="Multi-Site Staffing & Routing Optimizer API", lifespan=lifespan,
+              dependencies=[Depends(note_who_is_acting)])
 
 WRITE_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
 
@@ -154,6 +165,7 @@ def using(ws: Workspace) -> Generator[Workspace]:
 # ---------------------------------------------------------------------------
 
 class LoginRequest(BaseModel):
+    name: str
     password: str
 
 
@@ -164,16 +176,19 @@ def health():
 
 @app.get("/api/session")
 def session(authorization: str | None = Header(default=None)):
-    expires_at = registry.session_expiry(_bearer(authorization))
-    return {"mode": "coordinator" if expires_at else "playground",
+    login = registry.session(_bearer(authorization))
+    return {"mode": "coordinator" if login else "playground",
             "coordinator_available": registry.coordinator_configured,
-            "expires_at": expires_at.isoformat() if expires_at else None}
+            "expires_at": login.expires_at.isoformat() if login else None,
+            "name": login.name if login else None}
 
 
 @app.post("/api/login")
 def login(req: LoginRequest, request: Request):
     try:
-        token, expires_at = registry.login(req.password, client=_client_ip(request))
+        token, login = registry.login(req.name, req.password, client=_client_ip(request))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except NotConfiguredError as e:
         raise HTTPException(status_code=503, detail=str(e))
     except TooManyAttemptsError as e:
@@ -185,7 +200,7 @@ def login(req: LoginRequest, request: Request):
     # that login succeeded, so this doesn't read like the playground they were just in.
     ws = registry.coordinator()
     with using(ws):
-        return {"token": token, "expires_at": expires_at.isoformat(), "loaded": {
+        return {"token": token, "expires_at": login.expires_at.isoformat(), "name": login.name, "loaded": {
             "musicians": int(len(ws.data.musicians)),
             "facilities": int(len(ws.data.facilities)),
             "upcoming_shows": len(ws.upcoming_show_ids()),

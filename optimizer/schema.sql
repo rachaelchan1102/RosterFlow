@@ -235,3 +235,8 @@ CREATE TABLE IF NOT EXISTS workspace_version (
     version BIGINT NOT NULL
 );
 INSERT INTO workspace_version (id, version) VALUES (1, 0) ON CONFLICT (id) DO NOTHING;
+
+-- Who's logged in, as typed at login ("Your name"). Everyone shares one password, so this is a
+-- label for the activity log and sidebar, not an identity check.
+ALTER TABLE coordinator_sessions ADD COLUMN IF NOT EXISTS name TEXT NOT NULL DEFAULT '';
+ALTER TABLE schedule_audit ADD COLUMN IF NOT EXISTS by_name TEXT;

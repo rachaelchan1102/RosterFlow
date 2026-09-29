@@ -771,7 +771,8 @@ def activity_log(ws: Workspace, limit: int | None = None) -> list[dict]:
     entries = list(reversed(ws.audit_log))
     if limit is not None:
         entries = entries[:limit]
-    return [dict(id=e.id, at=e.at, description=e.description, fill_seconds=e.fill_seconds) for e in entries]
+    return [dict(id=e.id, at=e.at, description=e.description, fill_seconds=e.fill_seconds, by=e.by)
+            for e in entries]
 
 
 def revert_preview(ws: Workspace, entry_id: int) -> list[str]:

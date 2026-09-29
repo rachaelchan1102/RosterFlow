@@ -539,7 +539,30 @@ label.inline input { width: 70px; }
 }
 .modal h2 { font-size: 22px; font-weight: 600; font-stretch: 82%; }
 .modal.confirm p { margin: 0; }
-.modal.login .panel-footer { margin-top: 4px; }
+.modal.login {
+  width: min(380px, calc(100vw - 32px)); padding: 0 26px 22px; gap: 14px; border-radius: 6px;
+  margin-top: 64px; box-shadow: 0 18px 50px rgba(23, 24, 27, 0.18);
+}
+.login-mascot { width: 118px; height: auto; align-self: center; margin: -70px 0 -6px; pointer-events: none; }
+.login-mascot.wiggle { animation: login-wiggle 0.5s ease-in-out; }
+@keyframes login-wiggle {
+  20% { transform: rotate(-8deg); } 40% { transform: rotate(7deg); }
+  60% { transform: rotate(-5deg); } 80% { transform: rotate(3deg); }
+}
+@media (prefers-reduced-motion: reduce) { .login-mascot.wiggle { animation: none; } }
+.login-head { display: flex; flex-direction: column; align-items: center; text-align: center; gap: 6px; }
+.login-kicker {
+  font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; font-weight: 700; color: var(--ink);
+  background: var(--gold); padding: 3px 9px; border-radius: 999px;
+}
+.modal.login h2 { font-size: 26px; line-height: 1.05; }
+.modal.login .button.wide { padding: 9px; margin-top: 2px; }
+.login-skip {
+  background: none; border: none; padding: 0; color: var(--ink-2); font-size: 13px; cursor: pointer;
+  text-decoration: underline; text-underline-offset: 2px; align-self: center;
+}
+.login-skip:hover { color: var(--ink); }
+.login-fine { font-size: 11px; color: var(--ink-3); text-align: center; margin-top: -4px; }
 .password-field { position: relative; display: flex; }
 .password-field input { flex: 1; padding-right: 52px; }
 .password-field .foot-link { position: absolute; right: 8px; top: 50%; transform: translateY(-50%); }

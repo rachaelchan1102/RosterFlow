@@ -337,6 +337,8 @@ export interface ActivityEntry {
   at: string;
   description: string;
   fill_seconds: number | null;
+  /** Who made the change, as typed at login — null for sample data and self-service links. */
+  by: string | null;
 }
 
 export interface CapacityForecastRow {

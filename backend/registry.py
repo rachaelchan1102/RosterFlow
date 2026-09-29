@@ -28,6 +28,7 @@ import secrets
 import threading
 import time
 from collections.abc import Callable
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
@@ -66,6 +67,15 @@ def sample_data_fingerprint(sample_data_dir: Path) -> str:
     return h.hexdigest()
 
 
+MAX_NAME_LENGTH = 40
+
+
+@dataclass(frozen=True)
+class Login:
+    expires_at: datetime
+    name: str
+
+
 class TooManyAttemptsError(RuntimeError):
     def __init__(self, retry_after_s: int):
         minutes = max(1, round(retry_after_s / 60))
@@ -88,7 +98,7 @@ class Registry:
         self._schema_applied = False
         self._coordinator_lock = threading.Lock()
         self._auth_lock = threading.Lock()
-        self._session_cache: dict[str, tuple[datetime, float]] = {}   # key -> (expires_at, checked at)
+        self._session_cache: dict[str, tuple[Login, float]] = {}   # key -> (login, checked at)
 
     @property
     def coordinator_configured(self) -> bool:
@@ -152,9 +162,15 @@ class Registry:
 
     # ------------------------------------------------------------------ coordinator
 
-    def login(self, password: str, client: str) -> tuple[str, datetime]:
+    def login(self, name: str, password: str, client: str) -> tuple[str, Login]:
         """Check the shared password and start a login for `client` (an IP address, used only to
-        throttle guessing). Returns the new token and when it expires."""
+        throttle guessing). `name` is whatever the person typed as their name — everyone shares
+        the password, so it only labels their changes, it isn't checked against anything."""
+        name = " ".join(name.split())
+        if not name:
+            raise ValueError("Type your name, so your changes show who made them.")
+        if len(name) > MAX_NAME_LENGTH:
+            raise ValueError(f"Keep your name under {MAX_NAME_LENGTH} characters.")
         if not self.coordinator_configured:
             raise NotConfiguredError("The coordinator workspace isn't set up on this server (no database configured).")
         self._ensure_schema()
@@ -169,10 +185,11 @@ class Registry:
         token = secrets.token_urlsafe(32)
         expires_at = datetime.now(timezone.utc) + SESSION_TTL
         key = self._session_key(token)
-        persistence.create_coordinator_session(self._dsn, key, expires_at)
+        login = Login(expires_at, name)
+        persistence.create_coordinator_session(self._dsn, key, name, expires_at)
         with self._auth_lock:
-            self._session_cache[key] = (expires_at, time.monotonic())
-        return token, expires_at
+            self._session_cache[key] = (login, time.monotonic())
+        return token, login
 
     def logout(self, token: str) -> None:
         if not self.coordinator_configured:
@@ -189,27 +206,32 @@ class Registry:
             self._session_cache.clear()
         persistence.delete_all_coordinator_sessions(self._dsn)
 
-    def session_expiry(self, token: str | None) -> datetime | None:
-        """When this token's login expires, or None if it isn't a live login."""
+    def session(self, token: str | None) -> Login | None:
+        """This token's live login, or None if it isn't one (never was, expired, or logged out)."""
         if not token or not self.coordinator_configured:
             return None
         key = self._session_key(token)
         now = time.monotonic()
         with self._auth_lock:
             cached = self._session_cache.get(key)
-        if cached and now - cached[1] < SESSION_RECHECK_S and cached[0] > datetime.now(timezone.utc):
+        if cached and now - cached[1] < SESSION_RECHECK_S and cached[0].expires_at > datetime.now(timezone.utc):
             return cached[0]
         self._ensure_schema()
-        expires_at = persistence.coordinator_session_expiry(self._dsn, key)
+        row = persistence.coordinator_session(self._dsn, key)
+        login = Login(*row) if row else None
         with self._auth_lock:
-            if expires_at is None:
+            if login is None:
                 self._session_cache.pop(key, None)
             else:
-                self._session_cache[key] = (expires_at, now)
-        return expires_at
+                self._session_cache[key] = (login, now)
+        return login
+
+    def session_expiry(self, token: str | None) -> datetime | None:
+        login = self.session(token)
+        return login.expires_at if login else None
 
     def is_valid_token(self, token: str | None) -> bool:
-        return self.session_expiry(token) is not None
+        return self.session(token) is not None
 
     def _session_key(self, token: str) -> str:
         return hmac.new(self._password.encode(), token.encode(), hashlib.sha256).hexdigest()

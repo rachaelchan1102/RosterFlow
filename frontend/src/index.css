@@ -15,6 +15,9 @@
   --bad: #b0402f;
   --accent: #2c4a86;
   --accent-soft: #e7ebf3;
+  /* Music for the Golden Age's brand yellow — for the org's own name/badge, never for status
+     (amber --warn already means "below target"). Too light for text; use it behind --ink. */
+  --gold: #f4c430;
   --mark-ok: #b9b8b3;
   --bar-free: #c9c7c0;
   --mono: "JetBrains Mono", ui-monospace, monospace;

@@ -25,7 +25,7 @@ export default function Activity() {
           {entries.map((e) => (
             <div key={e.id} className="activity-row">
               <span className="mono small dim" title={new Date(e.at).toLocaleString()}>{timeAgo(e.at)}</span>
-              <span>{e.description}</span>
+              <span>{e.description}{e.by && <span className="dim"> · {e.by}</span>}</span>
             </div>
           ))}
         </div>

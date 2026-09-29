@@ -6,12 +6,18 @@ import mascot from "./assets/mascot.png";
 import PanelHost from "./components/PanelHost";
 import { useFocusTrap } from "./useFocusTrap";
 
+const NAME_KEY = "coordinatorName";
+
 function LoginDialog({ onClose }: { onClose: () => void }) {
   const { login } = useApp();
+  const [name, setName] = useState(() => {
+    try { return localStorage.getItem(NAME_KEY) ?? ""; } catch { return ""; }
+  });
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [wrongTries, setWrongTries] = useState(0);   // re-keys the mascot so it wiggles on every miss
   const trapRef = useFocusTrap<HTMLFormElement>(true);
 
   useEffect(() => {
@@ -24,9 +30,11 @@ function LoginDialog({ onClose }: { onClose: () => void }) {
     e.preventDefault();
     setBusy(true);
     setError(null);
-    login(password).then(onClose).catch((err) => {
+    try { localStorage.setItem(NAME_KEY, name.trim()); } catch { /* just won't be prefilled next time */ }
+    login(name, password).then(onClose).catch((err) => {
       setError(err.message);
       setPassword("");
+      setWrongTries((n) => n + 1);
     }).finally(() => setBusy(false));
   };
 
@@ -34,16 +42,23 @@ function LoginDialog({ onClose }: { onClose: () => void }) {
     <div className="modal-scrim" onClick={onClose}>
       <form ref={trapRef} tabIndex={-1} className="modal login" aria-labelledby="login-title"
             onClick={(e) => e.stopPropagation()} onSubmit={submit}>
-        <h2 id="login-title">Coordinator login</h2>
-        <p className="muted small">
-          Logging in switches to the real, saved schedule. The sample data you're in now resets every time you refresh.
-        </p>
-        {/* Lets a password manager file the shared password under a name instead of a blank one. */}
-        <input type="text" name="username" autoComplete="username" value="coordinator" readOnly hidden />
-        <label>Shared coordinator password
+        <img key={wrongTries} src={mascot} alt="" className={`login-mascot${wrongTries ? " wiggle" : ""}`} />
+        <div className="login-head">
+          <span className="login-kicker">Music for the Golden Age</span>
+          <h2 id="login-title">Are you part of the team?</h2>
+          <p className="muted">
+            Log in with the team password to see and edit the real schedule. Changes you make there are saved.
+          </p>
+        </div>
+        <label>Your name
+          {/* autoComplete="username" so a password manager files the team password under this name. */}
+          <input type="text" name="username" autoComplete="username" maxLength={40} autoFocus={!name}
+                 value={name} onChange={(e) => setName(e.target.value)} placeholder="So the team knows who changed what" />
+        </label>
+        <label>Team password
           <span className="password-field">
             <input type={showPassword ? "text" : "password"} name="password" autoComplete="current-password"
-                   autoFocus value={password} onChange={(e) => setPassword(e.target.value)}
+                   autoFocus={!!name} value={password} onChange={(e) => setPassword(e.target.value)}
                    aria-invalid={!!error} aria-describedby={error ? "login-error" : undefined} />
             <button type="button" className="foot-link" onClick={() => setShowPassword((v) => !v)}
                     aria-pressed={showPassword}>
@@ -52,13 +67,13 @@ function LoginDialog({ onClose }: { onClose: () => void }) {
           </span>
         </label>
         {error && <p id="login-error" className="error small" role="alert">{error}</p>}
-        <p className="muted small">You'll stay logged in on this device for 30 days, or until you log out.</p>
-        <div className="panel-footer">
-          <button className="button" type="submit" disabled={busy || !password}>
-            {busy ? "Checking…" : "Log in"}
-          </button>
-          <button className="button secondary" type="button" onClick={onClose}>Cancel</button>
-        </div>
+        <button className="button wide" type="submit" disabled={busy || !password || !name.trim()}>
+          {busy ? "Checking…" : "Log in"}
+        </button>
+        <button className="login-skip" type="button" onClick={onClose}>
+          Not on the team? Keep exploring the sample schedule
+        </button>
+        <p className="login-fine">You'll stay logged in on this device for 30 days.</p>
       </form>
     </div>
   );
@@ -99,7 +114,7 @@ const NAV = [
 ];
 
 export default function Layout() {
-  const { mode, coordinatorAvailable, loginExpiresAt, logout, logoutEverywhere, confirm, showToast, toast } = useApp();
+  const { mode, coordinatorAvailable, loginExpiresAt, loginName, logout, logoutEverywhere, confirm, showToast, toast } = useApp();
   const [loginOpen, setLoginOpen] = useState(false);
 
   const endAllLogins = async () => {
@@ -131,7 +146,7 @@ export default function Layout() {
         <div className="sidebar-foot">
           {mode === "coordinator" ? (
             <>
-              <span className="foot-strong">Coordinator. Changes are saved.</span>
+              <span className="foot-strong">{loginName ? `Logged in as ${loginName}` : "Coordinator"}. Changes are saved.</span>
               {loginExpiresAt && <span>Logged in until {formatDate(isoDate(new Date(loginExpiresAt)))}</span>}
               <span className="foot-actions">
                 <button className="foot-link" onClick={() => logout()}>Log out</button>
