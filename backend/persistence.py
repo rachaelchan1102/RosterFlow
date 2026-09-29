@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import secrets
+from datetime import datetime
 from pathlib import Path
 
 import pandas as pd
@@ -179,3 +180,79 @@ def musician_id_for_token(dsn: str, token: str) -> str | None:
     with psycopg.connect(dsn) as conn:
         row = conn.execute("SELECT musician_id FROM musician_tokens WHERE token = %s", (token,)).fetchone()
     return row[0] if row else None
+
+
+# ---------------------------------------------------------------------------
+# Coordinator logins (see schema.sql's coordinator_sessions comment for what `key` is)
+# ---------------------------------------------------------------------------
+
+def create_coordinator_session(dsn: str, key: str, expires_at: datetime) -> None:
+    with psycopg.connect(dsn) as conn:
+        conn.execute("DELETE FROM coordinator_sessions WHERE expires_at <= now()")
+        conn.execute("INSERT INTO coordinator_sessions (key, expires_at) VALUES (%s, %s)", (key, expires_at))
+        conn.commit()
+
+
+def coordinator_session_expiry(dsn: str, key: str) -> datetime | None:
+    """When this login expires, or None if it doesn't exist or already has."""
+    with psycopg.connect(dsn) as conn:
+        row = conn.execute("SELECT expires_at FROM coordinator_sessions WHERE key = %s AND expires_at > now()",
+                           (key,)).fetchone()
+    return row[0] if row else None
+
+
+def delete_coordinator_session(dsn: str, key: str) -> None:
+    with psycopg.connect(dsn) as conn:
+        conn.execute("DELETE FROM coordinator_sessions WHERE key = %s", (key,))
+        conn.commit()
+
+
+def delete_all_coordinator_sessions(dsn: str) -> None:
+    with psycopg.connect(dsn) as conn:
+        conn.execute("DELETE FROM coordinator_sessions")
+        conn.commit()
+
+
+# ---------------------------------------------------------------------------
+# Wrong-password throttling (see schema.sql's login_failures comment)
+# ---------------------------------------------------------------------------
+
+def recent_login_failures(dsn: str, client: str, window_s: int) -> list[datetime]:
+    with psycopg.connect(dsn) as conn:
+        return [r[0] for r in conn.execute(
+            "SELECT at FROM login_failures WHERE client = %s AND at > now() - make_interval(secs => %s) ORDER BY at",
+            (client, window_s)).fetchall()]
+
+
+def record_login_failure(dsn: str, client: str, window_s: int) -> None:
+    with psycopg.connect(dsn) as conn:
+        conn.execute("DELETE FROM login_failures WHERE at <= now() - make_interval(secs => %s)", (window_s,))
+        conn.execute("INSERT INTO login_failures (client) VALUES (%s)", (client,))
+        conn.commit()
+
+
+def clear_login_failures(dsn: str, client: str) -> None:
+    with psycopg.connect(dsn) as conn:
+        conn.execute("DELETE FROM login_failures WHERE client = %s", (client,))
+        conn.commit()
+
+
+# ---------------------------------------------------------------------------
+# Keeping several copies of the backend in step (see schema.sql's workspace_version comment)
+# ---------------------------------------------------------------------------
+
+# Arbitrary, but fixed: every copy of the backend must agree on it.
+WRITE_LOCK_ID = 7_310_422
+
+
+def workspace_version(dsn: str) -> int:
+    with psycopg.connect(dsn) as conn:
+        return conn.execute("SELECT version FROM workspace_version WHERE id = 1").fetchone()[0]
+
+
+def bump_workspace_version(dsn: str) -> int:
+    with psycopg.connect(dsn) as conn:
+        version = conn.execute(
+            "UPDATE workspace_version SET version = version + 1 WHERE id = 1 RETURNING version").fetchone()[0]
+        conn.commit()
+        return version

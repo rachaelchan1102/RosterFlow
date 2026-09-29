@@ -48,6 +48,7 @@ p { margin: 0; }
   display: flex; flex-direction: column; gap: 6px; align-items: flex-start;
 }
 .foot-strong { color: var(--ink-2); }
+.foot-actions { display: flex; gap: 12px; flex-wrap: wrap; }
 .foot-link { background: none; border: none; padding: 0; color: var(--accent); font-size: 12px; cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
 
 .main { flex: 1; min-width: 0; padding: 28px 40px 80px; }
@@ -538,6 +539,10 @@ label.inline input { width: 70px; }
 }
 .modal h2 { font-size: 22px; font-weight: 600; font-stretch: 82%; }
 .modal.confirm p { margin: 0; }
+.modal.login .panel-footer { margin-top: 4px; }
+.password-field { position: relative; display: flex; }
+.password-field input { flex: 1; padding-right: 52px; }
+.password-field .foot-link { position: absolute; right: 8px; top: 50%; transform: translateY(-50%); }
 .toast {
   position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); background: var(--ink); color: var(--paper);
   padding: 10px 16px; border-radius: 3px; z-index: 50; font-size: 13px; display: flex; align-items: center; gap: 16px;

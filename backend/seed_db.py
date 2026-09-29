@@ -10,6 +10,7 @@ import os
 import sys
 
 from backend import persistence
+from backend.env import load_env_file
 from optimizer.data import load_from_csv, save_to_db
 
 
@@ -19,9 +20,10 @@ def main() -> None:
     parser.add_argument("--replace", action="store_true", help="overwrite a roster that's already in the database")
     args = parser.parse_args()
 
+    load_env_file()
     dsn = os.environ.get("NEON_DSN")
     if not dsn:
-        sys.exit("Set NEON_DSN to the database connection string first.")
+        sys.exit("Set NEON_DSN in .env (or the shell) to the database connection string first.")
 
     persistence.apply_schema(dsn)
     if not persistence.roster_is_empty(dsn) and not args.replace:

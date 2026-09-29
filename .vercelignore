@@ -1,0 +1,7 @@
+# Keeps `vercel` CLI uploads small; a GitHub-connected deploy only sees committed files anyway.
+.venv/
+.env
+frontend/node_modules/
+frontend/dist/
+docs/
+tests/

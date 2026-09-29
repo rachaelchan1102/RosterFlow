@@ -4,7 +4,7 @@ Every request runs against a workspace (backend/workspace.py), picked by backend
 a per-visitor playground (synthetic data, gone on refresh) unless the request carries a valid
 coordinator login, in which case it's the shared Postgres-backed workspace.
 
-Configuration (environment variables):
+Configuration (environment variables, or KEY=value lines in the project's .env file):
   NEON_DSN              Postgres connection string for the coordinator workspace
   COORDINATOR_PASSWORD  the shared coordinator password
 Without both, only the playground is available.
@@ -19,12 +19,15 @@ from typing import Any
 
 import numpy as np
 import pandas as pd
-from fastapi import Body, Depends, FastAPI, Header, HTTPException
+import psycopg
+from fastapi import Body, Depends, FastAPI, Header, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from backend import persistence, views
-from backend.registry import NotConfiguredError, Registry
+from backend.env import load_env_file
+from backend.registry import NotConfiguredError, Registry, TooManyAttemptsError
 from backend.workspace import Workspace, WorkspaceError
 from optimizer.data import (BOOKING_HORIZON_DAYS, MAX_SHOWS_PER_DAY, RecordConflictError, add_facility, add_musician,
                             add_show, bulk_add_musicians, bulk_set_show_availability, delete_musician, delete_show,
@@ -32,6 +35,8 @@ from optimizer.data import (BOOKING_HORIZON_DAYS, MAX_SHOWS_PER_DAY, RecordConfl
 from optimizer.simulate import (DEFAULT_CANCEL_P, buffer_sizing_report, estimate_new_show_feasibility,
                                 simulate_fill_rate, simulate_pianist_risk, simulate_regional_disruption,
                                 suggest_alternative_dates)
+
+load_env_file()
 
 SAMPLE_DATA_DIR = Path(__file__).resolve().parent.parent / "sample_data"
 
@@ -46,6 +51,33 @@ async def lifespan(_app: FastAPI):
 
 
 app = FastAPI(title="Multi-Site Staffing & Routing Optimizer API", lifespan=lifespan)
+
+WRITE_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
+
+
+# Registered before CORS so CORS stays the outermost layer and still labels this one's 503s.
+@app.middleware("http")
+async def one_coordinator_write_at_a_time(request: Request, call_next):
+    """Several copies of the backend can be running (Vercel starts them on demand), each with the
+    coordinator workspace in memory. Without this, two copies could each apply a change to their
+    own copy and save, and the second save would silently wipe out the first. So any request that
+    could change the coordinator workspace takes a Postgres advisory lock for its whole run: writes
+    take turns across every copy, and each starts by reloading if another copy saved in between
+    (Registry.coordinator). A transaction-scoped lock, not a session one, so it also works through
+    Neon's pooled connection string and is released even if this copy dies mid-request."""
+    touches_coordinator = request.method in WRITE_METHODS and (
+        _bearer(request.headers.get("authorization")) is not None or request.url.path.startswith("/api/respond/"))
+    if not (touches_coordinator and registry.coordinator_configured):
+        return await call_next(request)
+    try:
+        conn = await psycopg.AsyncConnection.connect(registry.dsn)
+    except psycopg.OperationalError:
+        return JSONResponse(status_code=503, content={"detail": DB_UNREACHABLE})
+    async with conn:
+        await conn.execute("SELECT pg_advisory_xact_lock(%s)", (persistence.WRITE_LOCK_ID,))
+        return await call_next(request)   # the lock ends with the transaction when `conn` closes
+
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:5173"],   # the Vite dev server
@@ -54,9 +86,25 @@ app.add_middleware(
 )
 
 
+DB_UNREACHABLE = "Can't reach the coordinator database right now. Try again in a minute."
+
+
+@app.exception_handler(psycopg.OperationalError)
+def database_unreachable(_request: Request, _exc: psycopg.OperationalError):
+    return JSONResponse(status_code=503, content={"detail": DB_UNREACHABLE})
+
+
 # ---------------------------------------------------------------------------
 # Picking the workspace for a request
 # ---------------------------------------------------------------------------
+
+def _client_ip(request: Request) -> str:
+    # On Vercel every request reaches the app from Vercel's own proxy, so the visitor's address
+    # is in x-real-ip, which Vercel sets itself and a client can't override.
+    if os.environ.get("VERCEL") and request.headers.get("x-real-ip"):
+        return request.headers["x-real-ip"]
+    return request.client.host if request.client else "unknown"
+
 
 def _bearer(authorization: str | None) -> str | None:
     if authorization and authorization.lower().startswith("bearer "):
@@ -116,16 +164,20 @@ def health():
 
 @app.get("/api/session")
 def session(authorization: str | None = Header(default=None)):
-    return {"mode": "coordinator" if registry.is_valid_token(_bearer(authorization)) else "playground",
-            "coordinator_available": registry.coordinator_configured}
+    expires_at = registry.session_expiry(_bearer(authorization))
+    return {"mode": "coordinator" if expires_at else "playground",
+            "coordinator_available": registry.coordinator_configured,
+            "expires_at": expires_at.isoformat() if expires_at else None}
 
 
 @app.post("/api/login")
-def login(req: LoginRequest):
+def login(req: LoginRequest, request: Request):
     try:
-        token = registry.login(req.password)
+        token, expires_at = registry.login(req.password, client=_client_ip(request))
     except NotConfiguredError as e:
         raise HTTPException(status_code=503, detail=str(e))
+    except TooManyAttemptsError as e:
+        raise HTTPException(status_code=429, detail=str(e), headers={"Retry-After": str(e.retry_after_s)})
     except PermissionError as e:
         raise HTTPException(status_code=401, detail=str(e))
     # A coordinator has no picker between several named schedules — there's exactly one shared,
@@ -133,7 +185,7 @@ def login(req: LoginRequest):
     # that login succeeded, so this doesn't read like the playground they were just in.
     ws = registry.coordinator()
     with using(ws):
-        return {"token": token, "loaded": {
+        return {"token": token, "expires_at": expires_at.isoformat(), "loaded": {
             "musicians": int(len(ws.data.musicians)),
             "facilities": int(len(ws.data.facilities)),
             "upcoming_shows": len(ws.upcoming_show_ids()),
@@ -145,6 +197,12 @@ def logout(authorization: str | None = Header(default=None)):
     token = _bearer(authorization)
     if token:
         registry.logout(token)
+    return {"status": "ok"}
+
+
+@app.post("/api/logout-everywhere")
+def logout_everywhere(_ws: Workspace = Depends(get_coordinator_workspace)):
+    registry.logout_everywhere()
     return {"status": "ok"}
 
 

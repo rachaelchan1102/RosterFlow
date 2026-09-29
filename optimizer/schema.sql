@@ -204,3 +204,34 @@ CREATE TABLE IF NOT EXISTS schedule_audit (
     fill_seconds DOUBLE PRECISION,
     snapshot JSONB NOT NULL
 );
+
+-- Coordinator logins, so they survive a server restart or redeploy (an in-memory token set would
+-- log everyone out on every deploy). The key is HMAC(current COORDINATOR_PASSWORD, token), never
+-- the token itself: a leaked row can't be replayed, and changing the shared password silently
+-- invalidates every existing login, since no old key can match the new password's HMAC.
+CREATE TABLE IF NOT EXISTS coordinator_sessions (
+    key TEXT PRIMARY KEY,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    expires_at TIMESTAMPTZ NOT NULL
+);
+
+-- Wrong coordinator passwords, per client IP, for throttling guesses. Kept here rather than in
+-- memory because on a serverless host (Vercel) each request can land on a different copy of the
+-- backend, and an in-memory count would reset with every copy. Rows older than the throttle
+-- window are deleted as new ones come in.
+CREATE TABLE IF NOT EXISTS login_failures (
+    client TEXT NOT NULL,
+    at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS login_failures_client_at ON login_failures (client, at);
+
+-- Bumped after every save of the coordinator workspace. Each running copy of the backend keeps
+-- the workspace in memory and remembers which version it loaded; when the number here has moved,
+-- another copy changed something, so this copy reloads before using its stale in-memory state.
+-- Writes themselves are serialized across copies with a Postgres advisory lock (see
+-- backend/main.py), so two copies never save over each other.
+CREATE TABLE IF NOT EXISTS workspace_version (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    version BIGINT NOT NULL
+);
+INSERT INTO workspace_version (id, version) VALUES (1, 0) ON CONFLICT (id) DO NOTHING;

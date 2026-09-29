@@ -36,8 +36,12 @@ export interface ConfirmRequest {
 interface AppState {
   mode: Mode;
   coordinatorAvailable: boolean;
+  /** When the current coordinator login expires (ISO timestamp), or null in the playground. */
+  loginExpiresAt: string | null;
   login: (password: string) => Promise<void>;
   logout: () => Promise<void>;
+  /** Ends every coordinator login on every device, this one included. */
+  logoutEverywhere: () => Promise<void>;
   /** Bumped after every change; pages refetch when it moves. */
   version: number;
   refresh: () => void;
@@ -129,6 +133,7 @@ export function useDirtyOnChange(value: unknown, ready: boolean) {
 export function AppProvider({ children }: { children: ReactNode }) {
   const [mode, setMode] = useState<Mode>("playground");
   const [coordinatorAvailable, setCoordinatorAvailable] = useState(false);
+  const [loginExpiresAt, setLoginExpiresAt] = useState<string | null>(null);
   const [version, setVersion] = useState(0);
   const [needsUpdate, setNeedsUpdate] = useState<string | null>(null);
   const [lastUpdateChanges, setLastUpdateChanges] = useState<Change[] | null>(null);
@@ -162,23 +167,39 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const refresh = useCallback(() => setVersion((v) => v + 1), []);
 
+  const showToast = useCallback((message: string, action?: Toast["action"]) => {
+    const id = ++toastId.current;
+    setToast({ id, message, action });
+    window.setTimeout(() => setToast((current) => (current?.id === id ? null : current)),
+                      action ? UNDO_MS : TOAST_MS);
+  }, []);
+
   const loadSession = useCallback(() => {
-    api<{ mode: Mode; coordinator_available: boolean }>("/api/session").then((s) => {
+    api<{ mode: Mode; coordinator_available: boolean; expires_at: string | null }>("/api/session").then((s) => {
+      // A login saved in this browser that the server no longer honours (expired, logged out
+      // everywhere, or the password changed) — drop it, or every later request would 401.
+      if (s.mode === "playground" && getToken()) {
+        setToken(null);
+        showToast("Your coordinator login has ended — you're on sample data. Log in again to get back to the real schedule.");
+      }
       setMode(s.mode);
       setCoordinatorAvailable(s.coordinator_available);
-    });
-  }, []);
+      setLoginExpiresAt(s.expires_at);
+    }).catch(() => setCoordinatorAvailable(false));
+  }, [showToast]);
 
   useEffect(() => {
     loadSession();
     const onExpired = () => {
       setMode("playground");
+      setLoginExpiresAt(null);
       setPanels([]);
       refresh();
+      showToast("Your coordinator login has ended — you're on sample data. Log in again to get back to the real schedule.");
     };
     window.addEventListener("session-expired", onExpired);
     return () => window.removeEventListener("session-expired", onExpired);
-  }, [loadSession, refresh]);
+  }, [loadSession, refresh, showToast]);
 
   useEffect(() => {
     api<{ needs_update: string | null }>("/api/schedule/status")
@@ -215,10 +236,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
   };
 
   const login = async (password: string) => {
-    const { token, loaded } = await api<{ token: string; loaded: { musicians: number; facilities: number; upcoming_shows: number } }>(
-      "/api/login", { method: "POST", body: { password } });
+    const { token, expires_at, loaded } = await api<{
+      token: string; expires_at: string; loaded: { musicians: number; facilities: number; upcoming_shows: number };
+    }>("/api/login", { method: "POST", body: { password } });
     setToken(token);
     setMode("coordinator");
+    setLoginExpiresAt(expires_at);
     resetView();
     refresh();
     showToast(`Logged in to the real schedule: ${loaded.musicians} musicians, ${loaded.facilities} locations, `
@@ -229,16 +252,20 @@ export function AppProvider({ children }: { children: ReactNode }) {
     if (getToken()) await api("/api/logout", { method: "POST" }).catch(() => undefined);
     setToken(null);
     setMode("playground");
+    setLoginExpiresAt(null);
     resetView();
     refresh();
   };
 
-  const showToast = useCallback((message: string, action?: Toast["action"]) => {
-    const id = ++toastId.current;
-    setToast({ id, message, action });
-    window.setTimeout(() => setToast((current) => (current?.id === id ? null : current)),
-                      action ? UNDO_MS : TOAST_MS);
-  }, []);
+  const logoutEverywhere = async () => {
+    await api("/api/logout-everywhere", { method: "POST" });
+    setToken(null);
+    setMode("playground");
+    setLoginExpiresAt(null);
+    resetView();
+    refresh();
+    showToast("Logged out on every device. Anyone using the real schedule will need the password again.");
+  };
 
   const confirm = useCallback((req: ConfirmRequest) => new Promise<boolean>((resolve) => {
     confirmResolver.current = resolve;
@@ -310,7 +337,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   return (
     <AppContext.Provider
       value={{
-        mode, coordinatorAvailable, login, logout, version, refresh, needsUpdate,
+        mode, coordinatorAvailable, loginExpiresAt, login, logout, logoutEverywhere, version, refresh, needsUpdate,
         lastUpdateChanges, setLastUpdateChanges,
         panels, panelTitles, setPanelTitle,
         panelDirty, setPanelDirty,
