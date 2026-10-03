@@ -258,6 +258,22 @@ def schedule_view(ws: Workspace) -> dict:
     )
 
 
+def _seat_candidates(ws: Workspace, show_id: str) -> dict:
+    """Who the "fill a seat" picker can offer: `free_ids` can be added as is, `unmarked_ids` only
+    lack an availability yes for this show (the coordinator can confirm them anyway). Same check
+    add_to_show runs, so nothing listed here gets refused."""
+    pending = ws.pending_calls.get(show_id)
+    free, unmarked = [], []
+    for m in ws.data.musicians.index:
+        if m == pending:
+            continue
+        if ws.seat_blocker(show_id, m) is None:
+            free.append(m)
+        elif ws.seat_blocker(show_id, m, ignore_availability=True) is None:
+            unmarked.append(m)
+    return dict(free_ids=free, unmarked_ids=unmarked)
+
+
 def show_detail(ws: Workspace, show_id: str) -> dict:
     draft = ws.require_draft()
     data = ws.data
@@ -355,6 +371,7 @@ def show_detail(ws: Workspace, show_id: str) -> dict:
                           distance_km=float(s.distance_km), est_minutes=_transit_minutes(s.distance_km),
                           long_trip=_transit_minutes(s.distance_km) > 60) for s in solo],
         bans=bans, pending_call=pending_call,
+        **_seat_candidates(ws, show_id),
         facility=dict(address=str(fac.address), contact_name=str(fac.contact_name),
                       contact_phone=str(fac.contact_phone), parking_notes=str(fac.parking_notes),
                       piano_notes=str(fac.piano_notes), load_in_buffer_min=int(fac.load_in_buffer_min),

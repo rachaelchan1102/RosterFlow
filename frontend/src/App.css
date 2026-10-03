@@ -271,7 +271,7 @@ h3.sub-h { margin: 36px 0 8px; }
 .drawer .panel-title h2 { font-size: 22px; line-height: 1.1; font-weight: 600; font-stretch: 82%; margin-bottom: 4px; }
 .drawer .cancellation-flow { padding: 18px 22px 22px; }
 .panel-title p { margin: 2px 0; }
-.panel-footer { display: flex; gap: 8px; margin-top: 20px; }
+.panel-footer { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 20px; }
 
 /* ---------- inputs ---------- */
 label { display: flex; flex-direction: column; gap: 6px; font-size: 12px; color: var(--ink-2); }
@@ -286,8 +286,12 @@ input:focus, select:focus, textarea:focus, .field:focus { border-color: var(--in
 label.inline input { width: 70px; }
 .checkbox-group { border: 1px solid var(--rule); border-radius: 3px; padding: 10px 14px; margin: 12px 0; }
 .checkbox-group legend { padding: 0 4px; font-size: 12px; color: var(--ink-2); }
-.form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px 16px; margin-top: 12px; }
-.form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.form-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px 16px; margin-top: 12px; }
+.form-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; }
+/* minmax(0, 1fr) above and min-width here let form columns shrink to the panel instead of
+   overflowing it at their inputs' natural width. */
+.form-grid > *, .form-row > * { min-width: 0; }
+.form-grid input, .form-row input, .form-grid select, .form-row select { width: 100%; }
 .advanced-fields { margin: 4px 0 16px; }
 .advanced-fields summary { cursor: pointer; font-weight: 600; color: var(--ink-2); padding: 6px 0; }
 .advanced-fields > p { margin: 6px 0 12px; }
@@ -309,7 +313,8 @@ label.inline input { width: 70px; }
 .chip-button.odds-green { border-color: var(--ink-2); color: var(--ink); }
 .chip-button.odds-amber { border-color: var(--warn); color: var(--warn); }
 .chip-button.odds-red { border-color: var(--bad); color: var(--bad); }
-.contact-links { display: flex; gap: 6px; }
+.contact-links { display: flex; flex-wrap: wrap; gap: 2px 6px; }
+.contact-links a { overflow-wrap: anywhere; }
 .person-name { background: none; border: none; padding: 0; font-weight: 600; color: var(--ink); cursor: pointer; text-align: left; }
 .person-name:hover { color: var(--accent); text-decoration: underline; }
 .feasibility { margin-top: 16px; }
@@ -346,7 +351,20 @@ label.inline input { width: 70px; }
   flex-shrink: 0; width: 24px; height: 24px; display: grid; place-items: center; background: var(--ink); color: var(--paper);
   font-family: var(--mono); font-size: 12px;
 }
-.step-body { flex: 1; border: 1px solid var(--rule); padding: 12px 14px; background: var(--paper); }
+/* min-width: 0 lets a step shrink to the panel; without it a wide coverage bar or long line set
+   the step's minimum width and pushed the whole panel into sideways scrolling. */
+.step-body { flex: 1; min-width: 0; border: 1px solid var(--rule); padding: 12px 14px; background: var(--paper); }
+a[href^="tel:"] { white-space: nowrap; }
+.step-body .panel-footer .button { white-space: normal; text-align: left; }
+
+/* ---------- coverage bar (CoverageBar in Status.tsx) ---------- */
+.coverage { margin: 8px 0 4px; }
+.coverage-label { display: flex; justify-content: space-between; gap: 12px; font-size: 13px; margin-bottom: 4px; }
+.coverage-spare { font-weight: 400; color: var(--ink-3); }
+.coverage-track { height: 6px; background: var(--rule-2); border-radius: 3px; overflow: hidden; }
+.coverage-fill { height: 100%; background: var(--mark-ok); }
+.coverage-fill.amber { background: var(--warn); }
+.coverage-fill.red { background: var(--bad); }
 .step-body h3 { margin: 0 0 6px; font-size: 15px; font-weight: 600; }
 .step.pending .step-body { background: transparent; border-style: dashed; }
 .step.pending .step-number { background: var(--rule); color: var(--ink-3); }
@@ -529,7 +547,25 @@ label.inline input { width: 70px; }
 .empty-title { font-weight: 600; font-size: 17px; margin-top: 14px; }
 .empty-sub { color: var(--ink-2); margin-top: 4px; }
 .activity { margin-top: 12px; }
-.activity-row { display: grid; grid-template-columns: 110px 1fr; gap: 16px; padding: 10px 0; border-bottom: 1px solid var(--rule-2); align-items: baseline; }
+.activity-undo { font-size: 13px; }
+.activity-undo:disabled { color: var(--ink-3); cursor: default; }
+.activity-row { display: grid; grid-template-columns: 110px 1fr auto; gap: 16px; padding: 10px 0; border-bottom: 1px solid var(--rule-2); align-items: baseline; }
+
+/* ---------- clickable table rows ---------- */
+tr.row-click { cursor: pointer; }
+tr.row-click:hover td { background: var(--hover); }
+.row-link { background: none; border: none; padding: 0; color: var(--ink); font-size: inherit; cursor: pointer; text-align: left; }
+.row-link:hover, .row-link:focus-visible { text-decoration: underline; text-underline-offset: 2px; }
+
+/* ---------- status badge (icon + label, never color alone) ---------- */
+.status-badge { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+.status-icon {
+  display: inline-grid; place-items: center; width: 15px; height: 15px; border-radius: 2px;
+  font-size: 10px; font-weight: 700; line-height: 1; color: #fff; flex: none;
+}
+.status-badge.green .status-icon { background: var(--mark-ok); }
+.status-badge.amber .status-icon { background: var(--warn); }
+.status-badge.red .status-icon { background: var(--bad); }
 
 /* ---------- modal & toast ---------- */
 .modal-scrim { position: fixed; inset: 0; background: rgba(23, 24, 27, 0.25); z-index: 40; display: grid; place-items: center; }

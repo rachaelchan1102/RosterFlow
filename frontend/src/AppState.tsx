@@ -22,7 +22,9 @@ export type CalendarFilter = "all" | "week" | "amber" | "red";
 export interface Toast {
   id: number;
   message: string;
-  action?: { label: string; run: () => void };
+  /** `keepMs` overrides how long the toast stays up — an undo toast must vanish exactly when its
+   *  undo window closes (UNDO_MS), but other actions (like "Update now") deserve longer to reach. */
+  action?: { label: string; run: () => void; keepMs?: number };
 }
 
 export interface ConfirmRequest {
@@ -70,7 +72,8 @@ interface AppState {
   setPanelDirty: (dirty: boolean) => void;
 
   toast: Toast | null;
-  showToast: (message: string, action?: Toast["action"]) => void;
+  /** `durationMs` keeps a no-action toast up longer, e.g. while a slow request is running. */
+  showToast: (message: string, action?: Toast["action"], durationMs?: number) => void;
   confirmRequest: ConfirmRequest | null;
   /** In-app replacement for window.confirm. */
   confirm: (req: ConfirmRequest) => Promise<boolean>;
@@ -170,11 +173,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const refresh = useCallback(() => setVersion((v) => v + 1), []);
 
-  const showToast = useCallback((message: string, action?: Toast["action"]) => {
+  const showToast = useCallback((message: string, action?: Toast["action"], durationMs?: number) => {
     const id = ++toastId.current;
     setToast({ id, message, action });
     window.setTimeout(() => setToast((current) => (current?.id === id ? null : current)),
-                      action ? UNDO_MS : TOAST_MS);
+                      durationMs ?? action?.keepMs ?? (action ? UNDO_MS : TOAST_MS));
   }, []);
 
   const loadSession = useCallback(() => {

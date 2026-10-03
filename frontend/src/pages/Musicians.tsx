@@ -64,8 +64,15 @@ export default function Musicians() {
                 const ratio = u?.utilization ?? 0;
                 const atCap = ratio >= 1;
                 return (
-                  <tr key={m.musician_id}>
-                    <td><span className="strong">{m.display_name}</span> <span className="mono-sub">{m.musician_id}</span></td>
+                  <tr key={m.musician_id} className="row-click"
+                      onClick={() => { closePanels(); openPanel({ kind: "musician", id: m.musician_id }); }}>
+                    <td>
+                      {/* The row is clickable for the mouse; this button makes it reachable by keyboard. */}
+                      <button className="row-link strong" onClick={(e) => { e.stopPropagation(); closePanels(); openPanel({ kind: "musician", id: m.musician_id }); }}>
+                        {m.display_name}
+                      </button>{" "}
+                      <span className="mono-sub">{m.musician_id}</span>
+                    </td>
                     <td className="ink-2">{m.instrument}</td>
                     <td className="r mono">{m.age}</td>
                     <td className="ink-2">{gettingThere(m)}</td>

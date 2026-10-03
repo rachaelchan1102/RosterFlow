@@ -36,12 +36,16 @@ export function fuzzyScore(haystack: string, query: string): number | null {
 
 /** Filters and ranks `items` by how well `keyOf(item)` matches `query`, best match first —
  *  unchanged relative order for items that score equally (a stable sort), and the original list
- *  back unfiltered when `query` is blank. */
+ *  back unfiltered when `query` is blank. Loose letters-in-order matches are only a fallback for
+ *  typos: when anything contains every typed word outright, only those are shown — otherwise
+ *  "elm" would also list "WillowdalE Long-terM" alongside Elmwood. */
 export function fuzzyFilter<T>(items: T[], query: string, keyOf: (item: T) => string): T[] {
   if (!query.trim()) return items;
-  return items
+  const matches = items
     .map((item, index) => ({ item, index, score: fuzzyScore(keyOf(item), query) }))
-    .filter((r): r is { item: T; index: number; score: number } => r.score !== null)
+    .filter((r): r is { item: T; index: number; score: number } => r.score !== null);
+  const direct = matches.filter((r) => r.score < 10_000);   // every word found as a substring
+  return (direct.length ? direct : matches)
     .sort((a, b) => a.score - b.score || a.index - b.index)
     .map((r) => r.item);
 }

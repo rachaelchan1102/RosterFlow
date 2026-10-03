@@ -87,6 +87,9 @@ export default function Sites() {
     WEEKDAY_NAMES[x.weekday] === weekdayIndex(s.date) && x.start_time === s.start_time);
 
   const list = shown.map((s) => ({ s, d: details.get(s.show_id) })).filter((x) => x.d);
+  // Until every picked show's detail has arrived, the totals below would read as real zeros.
+  const loading = list.length < shown.length;
+  const figure = (v: string | number) => (loading ? <span className="dim">…</span> : v);
   const people = list.reduce((a, { d }) => a + d!.roster.length, 0);
   const transit = list.reduce((a, { d }) => a + d!.solo_transit.length, 0);
   const cars = list.reduce((a, { d }) => a + d!.cars.length, 0);
@@ -182,13 +185,13 @@ export default function Sites() {
         <div className="travel-layout">
           <div className="travel-figures">
             <div className="travel-figure"><div className="small ink-2">Musicians travelling</div>
-              <div className="travel-value">{people}</div></div>
+              <div className="travel-value">{figure(people)}</div></div>
             <div className="travel-figure"><div className="small ink-2">Cars</div>
-              <div className="travel-value">{cars}</div></div>
+              <div className="travel-value">{figure(cars)}</div></div>
             <div className="travel-figure"><div className="small ink-2">Distance driven</div>
-              <div className="travel-value">{km.toFixed(0)} km</div></div>
+              <div className="travel-value">{figure(`${km.toFixed(0)} km`)}</div></div>
             <div className="travel-figure"><div className="small ink-2">On transit</div>
-              <div className="travel-value">{transit}</div></div>
+              <div className="travel-value">{figure(transit)}</div></div>
           </div>
           <div className="travel-map">
             {network ? <NetworkMap facilities={mapFacilities} routes={mapRoutes} /> : <div className="map-loading mono dim">Loading map…</div>}
@@ -206,7 +209,8 @@ export default function Sites() {
                   <td>{r.driver}</td><td className="ink-2">{r.riders}</td><td className="r mono dim">{r.km}</td>
                 </tr>
               ))}
-              {rides.length === 0 && <tr><td colSpan={5} className="dim">No rides planned for {dayLabel(date)} yet.</td></tr>}
+              {loading && <tr><td colSpan={5} className="dim">Loading rides…</td></tr>}
+              {!loading && rides.length === 0 && <tr><td colSpan={5} className="dim">No rides planned for {dayLabel(date)} yet.</td></tr>}
             </tbody>
           </table>
         </div>

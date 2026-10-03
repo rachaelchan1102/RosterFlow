@@ -6,6 +6,8 @@ import type { Feasibility, Status } from "../types";
 interface FeasibilityResponse {
   requested: Feasibility;
   alternatives: Feasibility[];
+  /** Shows this location already has on that date. */
+  same_site: { show_id: string; start_time: string; duration_min: number }[];
 }
 
 function oddsStatus(p: number): Status {
@@ -19,7 +21,7 @@ function oddsStatus(p: number): Status {
  *  alone, without a resistance point at the moment of committing, reads as advisory-only. */
 export default function FeasibilityCheck({ facilityId, date, startTime, durationMin, onPickDate, onResult }: {
   facilityId: string; date: string; startTime: string; durationMin: number; onPickDate: (date: string) => void;
-  onResult?: (probability: number | null) => void;
+  onResult?: (probability: number | null, sameSiteTimes?: string[]) => void;
 }) {
   // Kept with the request it answers, so a stale result is never shown for a new pick.
   const [checked, setChecked] = useState<{ key: string; result: FeasibilityResponse | null } | null>(null);
@@ -34,7 +36,7 @@ export default function FeasibilityCheck({ facilityId, date, startTime, duration
         method: "POST",
         body: { facility_id, date: d, start_time: start_time || null, duration_min: Number(duration) || null },
       })
-        .then((result) => { setChecked({ key, result }); onResult?.(result.requested.probability_fully_staffed); })
+        .then((result) => { setChecked({ key, result }); onResult?.(result.requested.probability_fully_staffed, result.same_site.map((s) => s.start_time)); })
         .catch(() => setChecked({ key, result: null }));
     }, 350);
     return () => window.clearTimeout(t);
@@ -54,6 +56,17 @@ export default function FeasibilityCheck({ facilityId, date, startTime, duration
     : status === "amber" ? "Possible, but worth a second look before you commit." : "Unlikely to be fully staffed as-is.";
   return (
     <div className="feasibility">
+      {feasibility.same_site.length > 0 && (
+        <div className="callout red">
+          <strong>This location already has a show on {formatDate(req.date)}</strong>
+          <p className="small">
+            At {feasibility.same_site.map((s) => s.start_time).join(" and ")}.{" "}
+            {feasibility.same_site.some((s) => s.start_time === startTime)
+              ? "Same start time, so this would be a double booking."
+              : "Check the home really wants two shows that day."}
+          </p>
+        </div>
+      )}
       <div className={`callout ${status}`}>
         <strong>Estimated {pct(req.probability_fully_staffed)} chance {formatDate(req.date)}{startTime ? ` at ${startTime}` : ""} could be fully staffed</strong>
         <p className="small">{recommendation} This is an estimate, not a guarantee — adding the show doesn't staff it by itself.</p>

@@ -70,23 +70,36 @@ WRITE_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
 @app.middleware("http")
 async def one_coordinator_write_at_a_time(request: Request, call_next):
     """Several copies of the backend can be running (Vercel starts them on demand), each with the
-    coordinator workspace in memory. Without this, two copies could each apply a change to their
+    coordinator workspace (and visitors' sample-data copies) in memory. Without this, two copies could each apply a change to their
     own copy and save, and the second save would silently wipe out the first. So any request that
     could change the coordinator workspace takes a Postgres advisory lock for its whole run: writes
     take turns across every copy, and each starts by reloading if another copy saved in between
     (Registry.coordinator). A transaction-scoped lock, not a session one, so it also works through
     Neon's pooled connection string and is released even if this copy dies mid-request."""
-    touches_coordinator = request.method in WRITE_METHODS and (
-        _bearer(request.headers.get("authorization")) is not None or request.url.path.startswith("/api/respond/"))
-    if not (touches_coordinator and registry.coordinator_configured):
+    if request.method not in WRITE_METHODS or registry.dsn is None:
+        return await call_next(request)
+    has_login = _bearer(request.headers.get("authorization")) is not None
+    session_id = request.headers.get("x-session-id")
+    if has_login or request.url.path.startswith("/api/respond/"):
+        if not registry.coordinator_configured:
+            return await call_next(request)
+        lock_sql, lock_args, playground = "SELECT pg_advisory_xact_lock(%s)", (persistence.WRITE_LOCK_ID,), None
+    elif session_id:
+        # The same idea for one visitor's sample-data copy: their own clicks take turns, and the
+        # result is saved for every other backend copy to see (Registry.save_playground).
+        lock_sql, lock_args, playground = "SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))", (session_id,), session_id
+    else:
         return await call_next(request)
     try:
         conn = await psycopg.AsyncConnection.connect(registry.dsn)
     except psycopg.OperationalError:
         return JSONResponse(status_code=503, content={"detail": DB_UNREACHABLE})
     async with conn:
-        await conn.execute("SELECT pg_advisory_xact_lock(%s)", (persistence.WRITE_LOCK_ID,))
-        return await call_next(request)   # the lock ends with the transaction when `conn` closes
+        await conn.execute(lock_sql, lock_args)
+        response = await call_next(request)
+        if playground is not None:
+            await run_in_threadpool(registry.save_playground, playground)
+        return response   # the lock ends with the transaction when `conn` closes
 
 
 app.add_middleware(
@@ -500,12 +513,13 @@ def apply_cancellation(req: CancellationRequest, ws: Workspace = Depends(get_wor
 
 class AddToShowRequest(BaseModel):
     musician_id: str
+    mark_available: bool = False   # not marked free for this show, but the coordinator confirmed them
 
 
 @app.post("/api/shows/{show_id}/add-musician")
 def add_musician_to_show(show_id: str, req: AddToShowRequest, ws: Workspace = Depends(get_workspace)):
     with using(ws):
-        ws.add_to_show(show_id, req.musician_id)
+        ws.add_to_show(show_id, req.musician_id, mark_available=req.mark_available)
         return {"status": "ok"}
 
 
@@ -902,8 +916,14 @@ def feasibility(req: FeasibilityRequest, ws: Workspace = Depends(get_workspace))
         # Never suggest a date that's already past, OR one outside the window a show can actually
         # be booked in — a "100%" alternative nobody can act on isn't a real suggestion.
         alternatives = [a for a in alternatives if today <= a.date <= horizon][:3]
+        # Shows this same location already has that day. Staffing odds can look fine for a second
+        # show at the same site and time while it's almost certainly a double booking.
+        shows = ws.data.shows
+        same_site = shows[(shows.facility_id == req.facility_id) & (shows.date == req.date)]
         return {"requested": _feasibility_to_dict(requested),
-                "alternatives": [_feasibility_to_dict(a) for a in alternatives]}
+                "alternatives": [_feasibility_to_dict(a) for a in alternatives],
+                "same_site": [dict(show_id=sid, start_time=str(r.start_time), duration_min=int(r.duration_min))
+                              for sid, r in same_site.sort_values("start_time").iterrows()]}
 
 
 @app.get("/api/simulation/best-dates")

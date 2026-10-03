@@ -13,6 +13,10 @@ import { CoverageBar, StatusBadge } from "./Status";
  *  (nothing picked yet, so the Show dropdown shows too) — and as the whole Cancellations page.
  *  All three steps are visible from the start so the shape of the flow is clear; later ones stay
  *  greyed until reached. */
+/** "+3" / "−3" with a real minus sign, and "+$7.68" / "−$7.68" rather than "$-7.68". */
+const signed = (n: number) => `${n > 0 ? "+" : n < 0 ? "−" : ""}${Math.abs(n)}`;
+const signedDollars = (n: number) => `${n > 0 ? "+" : n < 0 ? "−" : ""}$${Math.abs(n).toFixed(2)}`;
+
 export default function CancellationFlow({ initialShowId = "", initialMusicianId = "", inPanel = false }: {
   initialShowId?: string; initialMusicianId?: string; inPanel?: boolean;
 }) {
@@ -310,8 +314,7 @@ export default function CancellationFlow({ initialShowId = "", initialMusicianId
                     {plan.cancelled.name} ({plan.cancelled.distance_km} km) replaced by {plan.activated_backup.name} ({plan.activated_backup.distance_km} km)
                     {" — "}
                     <span className={plan.activated_backup.km_delta > 0 ? "error" : ""}>
-                      {plan.activated_backup.km_delta > 0 ? "+" : ""}{plan.activated_backup.km_delta} km,{" "}
-                      {plan.activated_backup.cost_delta > 0 ? "+" : ""}${plan.activated_backup.cost_delta.toFixed(2)}
+                      {signed(plan.activated_backup.km_delta)} km, {signedDollars(plan.activated_backup.cost_delta)}
                     </span>
                   </p>
                   {plan.activated_backup.pooled_with.length > 0 && (

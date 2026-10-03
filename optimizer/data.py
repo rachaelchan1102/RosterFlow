@@ -392,7 +392,25 @@ def add_show(data: Data, show: dict) -> Data:
     _check_booking_window(show["date"], show.get("period", "upcoming"))
     raw = _to_raw_tables(data)
     raw["shows"] = pd.concat([raw["shows"], pd.DataFrame([show])], ignore_index=True)
+    # Nobody has answered for a brand-new show yet, and with no availability rows at all the solver
+    # (and a manual fill) would treat everyone as unavailable, leaving it empty for good. Start
+    # everyone from their recurring weekly pattern instead — the same "who's usually free then"
+    # the booking form's feasibility check already assumed — and let real answers override it.
+    raw["availability"] = pd.concat(
+        [raw["availability"], pd.DataFrame(_weekly_pattern_availability(raw, show))], ignore_index=True)
     return _validate_and_build(raw)
+
+
+def _weekly_pattern_availability(raw: dict[str, pd.DataFrame], show: dict) -> list[dict]:
+    weekday = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"][pd.Timestamp(show["date"]).weekday()]
+    start = str(show["start_time"])
+    end_ts = pd.Timestamp(f"2000-01-01 {start}") + pd.Timedelta(minutes=int(show["duration_min"]))
+    end = end_ts.strftime("%H:%M")
+    wa = raw["weekly_availability"]
+    wa = wa[wa.weekday == weekday]
+    free = set(wa[(wa.start_time <= start) & (wa.end_time >= end)].musician_id)
+    return [dict(musician_id=m, show_id=show["show_id"], available=int(m in free))
+            for m in raw["musicians"]["musician_id"]]
 
 
 def update_show(data: Data, show_id: str, changes: dict) -> Data:

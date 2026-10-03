@@ -240,3 +240,16 @@ INSERT INTO workspace_version (id, version) VALUES (1, 0) ON CONFLICT (id) DO NO
 -- label for the activity log and sidebar, not an identity check.
 ALTER TABLE coordinator_sessions ADD COLUMN IF NOT EXISTS name TEXT NOT NULL DEFAULT '';
 ALTER TABLE schedule_audit ADD COLUMN IF NOT EXISTS by_name TEXT;
+
+-- Sample-data ("playground") sessions, one row per visitor's browser tab, so every copy of the
+-- backend sees the same copy of a visitor's sample data. On Vercel a burst of requests from one
+-- page spreads across several copies; held only in memory, a visitor's added show or reported
+-- cancellation would exist on one copy and be missing on the others. `state` is the visitor's
+-- whole Workspace, pickled and zlib-compressed; `version` moves on every save so a copy holding
+-- an older one in memory knows to reload. Rows idle past PLAYGROUND_IDLE_TTL_S are deleted.
+CREATE TABLE IF NOT EXISTS playground_sessions (
+    session_id TEXT PRIMARY KEY,
+    version BIGINT NOT NULL,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    state BYTEA NOT NULL
+);

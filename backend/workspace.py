@@ -130,6 +130,19 @@ class Workspace:
         self._save_state = save_state
         self._save_audit = save_audit
 
+    # Pickled whole to share a sample-data session between backend copies (registry.py). A lock
+    # can't be pickled, and the save hooks belong to whichever copy loads it, so neither travels.
+    def __getstate__(self) -> dict:
+        state = self.__dict__.copy()
+        for key in ("lock", "_save_data", "_save_state", "_save_audit"):
+            state[key] = None
+        return state
+
+    def __setstate__(self, state: dict) -> None:
+        self.__dict__.update(state)
+        self.lock = threading.RLock()
+        self.last_used = time.monotonic()
+
     # ------------------------------------------------------------------ derived state
 
     def upcoming_show_ids(self) -> list[str]:
@@ -525,37 +538,52 @@ class Workspace:
         self._record(f"{self._name(musician_id)} said no for {self._show_label(show_id)} — pick someone else", before)
         self._persist(state=True)
 
-    def add_to_show(self, show_id: str, musician_id: str) -> None:
+    def seat_blocker(self, show_id: str, musician_id: str, ignore_availability: bool = False) -> str | None:
+        """Why this musician can't take a seat on this show right now, or None if they can. The
+        one check behind both the "who's free" picker (views.show_detail) and add_to_show, so the
+        picker never offers someone the add button then refuses."""
+        draft = self.require_draft()
+        name = self._name(musician_id)
+        if (musician_id, show_id) in _pairs(draft.assignments):
+            return f"{name} is already on this show."
+        if (musician_id, show_id) in self.banned_pairs():
+            return f"{name} is banned from this show."
+        if not ignore_availability and not self.data.is_available(musician_id, show_id):
+            return f"{name} isn't marked available for this show."
+        date = self.data.shows.at[show_id, "date"]
+        same_day = set(self.data.shows.index[self.data.shows.date == date]) - {show_id}
+        if musician_id in set(draft.assignments.loc[draft.assignments.show_id.isin(same_day), "musician_id"]):
+            return f"{name} is already playing another show that day."
+        if musician_id in {m for s, m in self.pending_calls.items() if s in same_day}:
+            return f"{name} has been called to fill in at another show that day."
+        facility_id = self.data.shows.at[show_id, "facility_id"]
+        if not self.data.within_guardian_range(musician_id, facility_id):
+            return f"{name} is a minor who needs a guardian nearby — this location is too far from home."
+        row = self.data.musicians.loc[musician_id]
+        if (row.instrument == "piano" and not self.data.facilities.at[facility_id, "has_piano_onsite"]
+                and not row.brings_keyboard):
+            return f"{name} plays piano but doesn't bring a keyboard, and this location has no piano in the room."
+        return None
+
+    def add_to_show(self, show_id: str, musician_id: str, mark_available: bool = False) -> None:
         """A direct "put this person on this show" — for filling an open seat that isn't the
         result of anyone cancelling (an understaffed show from the start, or a coordinator who
         just knows someone who'd say yes). Goes straight onto the draft, no pending step: unlike
         a cancellation's backup call, the coordinator picking a specific free person here already
-        implies they've squared it with them."""
+        implies they've squared it with them. `mark_available` is for someone not marked free for
+        this show whom the coordinator has confirmed anyway."""
         draft = self.require_draft()
         if show_id not in self.data.shows.index:
             raise WorkspaceError("That show doesn't exist.")
         if musician_id not in self.data.musicians.index:
             raise WorkspaceError("That musician doesn't exist.")
-        if (musician_id, show_id) in _pairs(draft.assignments):
-            raise WorkspaceError(f"{self._name(musician_id)} is already on this show.")
-        if (musician_id, show_id) in self.banned_pairs():
-            raise WorkspaceError(f"{self._name(musician_id)} is banned from this show.")
-        if not self.data.is_available(musician_id, show_id):
-            raise WorkspaceError(f"{self._name(musician_id)} isn't free for this show.")
-        date = self.data.shows.at[show_id, "date"]
-        same_day = set(self.data.shows.index[self.data.shows.date == date])
-        busy = set(draft.assignments.loc[draft.assignments.show_id.isin(same_day), "musician_id"])
-        if musician_id in busy:
-            raise WorkspaceError(f"{self._name(musician_id)} is already playing another show that day.")
-        facility_id = self.data.shows.at[show_id, "facility_id"]
-        if not self.data.within_guardian_range(musician_id, facility_id):
-            raise WorkspaceError(f"{self._name(musician_id)} is a minor who needs a guardian nearby — "
-                                 f"this location is too far from home.")
-        row = self.data.musicians.loc[musician_id]
-        if (row.instrument == "piano" and not self.data.facilities.at[facility_id, "has_piano_onsite"]
-                and not row.brings_keyboard):
-            raise WorkspaceError(f"{self._name(musician_id)} plays piano but doesn't bring a keyboard, "
-                                 f"and this location has no piano in the room.")
+        blocker = self.seat_blocker(show_id, musician_id, ignore_availability=mark_available)
+        if blocker:
+            raise WorkspaceError(blocker)
+        if mark_available and not self.data.is_available(musician_id, show_id):
+            # The coordinator heard from them directly; record it so a re-solve keeps them on.
+            self.data = set_show_availability(self.data, musician_id, show_id, True)
+            self._persist(data=True)
 
         before = self._snapshot()
         typical = int(self.data.musicians.at[musician_id, "typical_songs"])

@@ -59,6 +59,9 @@ def assign_backups(data: Data, assignments: pd.DataFrame, show_ids: list[str] | 
              else data.shows[data.shows.period == "upcoming"])
     pianist_ids = set(data.musicians[data.musicians.instrument == "piano"].musician_id)
     played_count = assignments.groupby("musician_id").size().to_dict()
+    month_of = pd.to_datetime(data.shows["date"]).dt.to_period("M")
+    played_in_month = (assignments.assign(month=assignments.show_id.map(month_of))
+                       .groupby(["musician_id", "month"]).size().to_dict())
     recent_counts = recent_facility_counts(data, shows)
 
     # Look up dates from the FULL show table, not the (possibly show_ids-filtered) `shows` above —
@@ -99,11 +102,16 @@ def assign_backups(data: Data, assignments: pd.DataFrame, show_ids: list[str] | 
             and (m.musician_id, s.show_id) not in excluded
         ]
 
+        show_month = month_of[s.Index]
+
         def sort_key(m):
+            # Anyone already at their monthly limit goes to the back of the line: calling them in
+            # would push them over it, so they're a last resort, never a top pick.
+            at_cap = played_in_month.get((m.musician_id, show_month), 0) >= int(m.max_shows_per_month)
             played = played_count.get(m.musician_id, 0)
             dist = data.distance_to_facility(m.musician_id, s.facility_id)
             rotation = recent_counts.get((m.musician_id, s.facility_id), 0)
-            return (played, dist, rotation)
+            return (at_cap, played, dist, rotation)
 
         ranked = sorted(candidates, key=sort_key)
         picks = ranked[:num_backups]

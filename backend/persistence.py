@@ -259,3 +259,33 @@ def bump_workspace_version(dsn: str) -> int:
             "UPDATE workspace_version SET version = version + 1 WHERE id = 1 RETURNING version").fetchone()[0]
         conn.commit()
         return version
+
+
+# ---------------------------------------------------------------------------
+# Sample-data sessions shared across backend copies (see schema.sql's playground_sessions)
+# ---------------------------------------------------------------------------
+
+def playground_version(dsn: str, session_id: str) -> int | None:
+    with psycopg.connect(dsn) as conn:
+        row = conn.execute("SELECT version FROM playground_sessions WHERE session_id = %s", (session_id,)).fetchone()
+    return row[0] if row else None
+
+
+def load_playground(dsn: str, session_id: str) -> tuple[int, bytes] | None:
+    with psycopg.connect(dsn) as conn:
+        row = conn.execute("SELECT version, state FROM playground_sessions WHERE session_id = %s",
+                           (session_id,)).fetchone()
+    return (row[0], bytes(row[1])) if row else None
+
+
+def save_playground(dsn: str, session_id: str, state: bytes, idle_ttl_s: int) -> int:
+    with psycopg.connect(dsn) as conn:
+        conn.execute("DELETE FROM playground_sessions WHERE updated_at < now() - make_interval(secs => %s)",
+                     (idle_ttl_s,))
+        version = conn.execute(
+            "INSERT INTO playground_sessions (session_id, version, state) VALUES (%s, 1, %s) "
+            "ON CONFLICT (session_id) DO UPDATE SET version = playground_sessions.version + 1, "
+            "state = EXCLUDED.state, updated_at = now() RETURNING version",
+            (session_id, state)).fetchone()[0]
+        conn.commit()
+        return version

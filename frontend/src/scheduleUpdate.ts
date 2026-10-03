@@ -22,12 +22,15 @@ export function updateResultMessage(changes: Change[], stillShort: StillShort[])
  *  someone on a different page than the one that triggered the update ever sees it. */
 export function updateNowAction(
   refresh: () => void,
-  showToast: (message: string, action?: Toast["action"]) => void,
+  showToast: (message: string, action?: Toast["action"], durationMs?: number) => void,
   setLastUpdateChanges: (changes: Change[] | null) => void,
 ): Toast["action"] {
   return {
     label: "Update now",
+    keepMs: 12_000,
     run: () => {
+      // A solve takes ~20s. Without this, clicking looks like it did nothing until the result lands.
+      showToast("Updating the schedule… this can take about 20 seconds.", undefined, 60_000);
       api<{ changes: Change[]; still_short: StillShort[] }>("/api/schedule/resolve", { method: "POST" })
         .then((r) => {
           refresh();

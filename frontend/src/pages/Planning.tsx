@@ -138,7 +138,8 @@ function CheckDate({ facilities, schedule }: { facilities: Facility[] | null; sc
   const [time, setTime] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [result, setResult] = useState<{ site: string; date: string; time: string; req: Feasibility; alts: Feasibility[] } | null>(null);
+  const [result, setResult] = useState<{ site: string; date: string; time: string; req: Feasibility; alts: Feasibility[];
+                                          sameSite: string[] } | null>(null);
   const fac = facilities?.find((f) => f.facility_id === site);
   const usual = fac?.preferred_slot.split(" ")[1];
   // Everyone already playing a show that day, so the table never offers someone who's booked.
@@ -150,9 +151,10 @@ function CheckDate({ facilities, schedule }: { facilities: Facility[] | null; sc
     if (!fac) return;
     setBusy(true);
     setError(null);
-    api<{ requested: Feasibility; alternatives: Feasibility[] }>("/api/feasibility", {
+    api<{ requested: Feasibility; alternatives: Feasibility[]; same_site: { start_time: string }[] }>("/api/feasibility", {
       method: "POST", body: { facility_id: site, date, start_time: time, duration_min: fac.show_duration_min },
-    }).then((r) => setResult({ site, date, time, req: r.requested, alts: r.alternatives }))
+    }).then((r) => setResult({ site, date, time, req: r.requested, alts: r.alternatives,
+                               sameSite: r.same_site.map((x) => x.start_time) }))
       .catch((e: Error) => setError(e.message)).finally(() => setBusy(false));
   };
 
@@ -167,8 +169,11 @@ function CheckDate({ facilities, schedule }: { facilities: Facility[] | null; sc
     const expected = Math.min(target, Math.round(result.req.mean_available_count));
     const better = result.alts.filter((a) => a.date !== result.date && a.probability_fully_staffed > p + 0.05)
       .sort((a, b) => b.probability_fully_staffed - a.probability_fully_staffed)[0];
-    const verdictTone = p >= 0.9 ? undefined : p >= 0.6 ? "warn" as const : "bad" as const;
-    const verdict = p >= 0.9 ? "Fills" : p >= 0.6 ? "Likely fills, but tight" : "Won't fill";
+    // A second show at the same site and time is a double booking however good the odds look.
+    const doubleBooked = result.sameSite.includes(result.time);
+    const verdictTone = doubleBooked ? "bad" as const : p >= 0.9 ? undefined : p >= 0.6 ? "warn" as const : "bad" as const;
+    const verdict = doubleBooked ? `Already booked at ${result.time}`
+      : p >= 0.9 ? "Fills" : p >= 0.6 ? "Likely fills, but tight" : "Won't fill";
     const util = new Map((utilization?.musicians ?? []).map((u) => [u.musician_id, u]));
     const freeIds = freeOn(heatmap, result.date);
     const atCap = (id: string) => (util.get(id)?.utilization ?? 0) >= 1;
@@ -185,6 +190,13 @@ function CheckDate({ facilities, schedule }: { facilities: Facility[] | null; sc
                  <Figure label="Expected fill" value={`${expected} / ${target}`} tone={expected < target ? "bad" : undefined} />
                  <Figure label="Chance of a full lineup" value={pct(p)} tone={verdictTone} />
                </>}>
+        {result.sameSite.length > 0 && (
+          <p className="callout red small">
+            {f ? siteShort(f.display_name) : "This site"} already has a show on {dayLabel(result.date)} at{" "}
+            {result.sameSite.join(" and ")}.{" "}
+            {doubleBooked ? "This would be a double booking." : "Check the home really wants two shows that day."}
+          </p>
+        )}
         <ResultTable title={`Not booked on ${dayLabel(result.date)}`}
                      note={`First 10 of ${free.length} with some free time that day, least busy first`}
                      cols={[{ label: "Name" }, { label: "Instrument" }, { label: "Region" }, { label: "Getting there" }, { label: "Busiest month", right: true }]}

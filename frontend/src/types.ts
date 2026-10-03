@@ -130,6 +130,10 @@ export interface ShowDetail {
   cars: { driver: string; riders: string[]; distance_km: number }[];
   solo_transit: { musician_id: string; name: string; distance_km: number; est_minutes: number; long_trip: boolean }[];
   pending_call: { musician_id: string; name: string; age: number; phone: string; email: string; guardian_name: string; guardian_phone: string } | null;
+  /** Can take a seat as is (marked available, no same-day show, not banned, ...). */
+  free_ids: string[];
+  /** Would pass every check except they haven't been marked available for this show. */
+  unmarked_ids: string[];
   facility: { address: string; contact_name: string; contact_phone: string; parking_notes: string; piano_notes: string;
              load_in_buffer_min: number; max_per_car: number };
   attendance: Record<string, "attended" | "late_cancel" | "no_show">;

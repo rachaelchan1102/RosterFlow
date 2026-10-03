@@ -51,6 +51,7 @@ export default function ShowForm({ showId, initialDate, initialFacilityId }: { s
   const [error, setError] = useState<string | null>(null);
   const [loaded, setLoaded] = useState(false);
   const [feasibility, setFeasibility] = useState<number | null>(null);
+  const [sameSiteTimes, setSameSiteTimes] = useState<string[]>([]);
   const window = bookingWindow();
   const dateInRange = form.date >= window.min && form.date <= window.max;
 
@@ -105,6 +106,16 @@ export default function ShowForm({ showId, initialDate, initialFacilityId }: { s
   };
 
   const save = async () => {
+    if (!editing && sameSiteTimes.length > 0) {
+      const ok = await confirm({
+        title: "This location already has a show that day",
+        body: `There's already a show here at ${sameSiteTimes.join(" and ")} on this date. `
+            + (sameSiteTimes.includes(form.start_time) ? "Same start time, so this would be a double booking." : "Add a second one anyway?"),
+        confirmLabel: "Add it anyway",
+        hint: "You can delete either show later if it was a mistake.",
+      });
+      if (!ok) return;
+    }
     if (!editing && feasibility !== null && feasibility < 0.3) {
       const ok = await confirm({
         title: "This date looks very unlikely to be staffed",
@@ -210,7 +221,7 @@ export default function ShowForm({ showId, initialDate, initialFacilityId }: { s
       {!editing && (
         <FeasibilityCheck facilityId={form.facility_id} date={form.date} startTime={form.start_time}
                           durationMin={form.duration_min} onPickDate={(date) => setForm({ ...form, date })}
-                          onResult={setFeasibility} />
+                          onResult={(p, times) => { setFeasibility(p); setSameSiteTimes(times ?? []); }} />
       )}
 
       <div className="panel-footer">

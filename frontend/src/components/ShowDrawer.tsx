@@ -5,16 +5,15 @@ import { formatMonth } from "../format";
 import { copyToClipboard, reminderMessage } from "../messageTemplates";
 import { dayLabelComma, plural, tone, TONE_LABEL } from "../rosterflow";
 import type { Musician, ShowDetail } from "../types";
-import { freeOn, useApi, useHeatmap, useMusicians, useUtilization } from "../useData";
+import { useApi, useMusicians, useUtilization } from "../useData";
 import { Mark } from "./Mark";
 
-interface Candidate { m: Musician; note: string; noteTone?: "warn" }
+interface Candidate { m: Musician; note: string; noteTone?: "warn"; unmarked?: boolean }
 
 export default function ShowDrawer({ showId }: { showId: string }) {
   const { refresh, showToast } = useApp();
   const { data: detail, error: loadError } = useApi<ShowDetail>(`/api/shows/${showId}/detail`);
   const { data: musicians } = useMusicians();
-  const { data: heatmap } = useHeatmap();
   const { data: utilization } = useUtilization();
   const [fillOpen, setFillOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -38,14 +37,17 @@ export default function ShowDrawer({ showId }: { showId: string }) {
     setError(null);
     fn().then(() => { showToast(msg); setFillOpen(false); setQuery(""); refresh(); }).catch((e: Error) => setError(e.message));
   };
-  const add = (m: { musician_id: string; display_name?: string; name?: string }) =>
-    run(() => api(`/api/shows/${showId}/add-musician`, { method: "POST", body: { musician_id: m.musician_id } }),
+  const add = (m: { musician_id: string; display_name?: string; name?: string }, markAvailable = false) =>
+    run(() => api(`/api/shows/${showId}/add-musician`,
+                  { method: "POST", body: { musician_id: m.musician_id, mark_available: markAvailable } }),
         `${m.display_name ?? m.name} added to the show`);
 
-  // Who could fill a seat: free that day by their weekly pattern and not already on this show.
-  const taken = new Set([...detail.roster.map((r) => r.musician_id), ...detail.backups.map((b) => b.musician_id),
-                         ...(pending ? [pending.musician_id] : [])]);
-  const free = freeOn(heatmap, detail.date);
+  // Who could fill a seat, straight from the backend's own seat check (free_ids: marked available
+  // for this show; unmarked_ids: everything else checks out, they just haven't said yes), so the
+  // picker never offers someone the add would then refuse. Backups are listed separately above.
+  const taken = new Set(detail.backups.map((b) => b.musician_id));
+  const free = new Set(detail.free_ids);
+  const unmarked = new Set(detail.unmarked_ids);
   const capNote = (m: Musician): Candidate => {
     const u = util.get(m.musician_id);
     if (u && u.utilization >= 1) return { m, note: "at cap", noteTone: "warn" };
@@ -56,8 +58,9 @@ export default function ShowDrawer({ showId }: { showId: string }) {
   const fillFree = others.filter((m) => free.has(m.musician_id))
     .sort((a, b) => Number(atCap(a)) - Number(atCap(b))).slice(0, 6).map(capNote);
   const q = query.trim().toLowerCase();
-  const fillOther = others.filter((m) => !free.has(m.musician_id) && (!q || m.display_name.toLowerCase().includes(q)))
-    .slice(0, q ? 8 : 4).map((m) => ({ m, note: atCap(m) ? "at cap" : "", noteTone: atCap(m) ? "warn" as const : undefined }));
+  const fillOther = others.filter((m) => unmarked.has(m.musician_id) && (!q || m.display_name.toLowerCase().includes(q)))
+    .slice(0, q ? 8 : 4)
+    .map((m) => ({ m, note: atCap(m) ? "at cap" : "", noteTone: atCap(m) ? "warn" as const : undefined, unmarked: true }));
 
   const region = (name: string) => byName.get(name)?.home_region ?? "";
   const firstName = (name: string) => name.split(" ")[0];
@@ -75,7 +78,7 @@ export default function ShowDrawer({ showId }: { showId: string }) {
     .then((ok) => showToast(ok ? "Reminder message copied. Paste it wherever you message the group." : "Couldn't copy. Try again."));
 
   const candidateRow = (cand: Candidate) => (
-    <button key={cand.m.musician_id} className="fill-row" onClick={() => add(cand.m)}>
+    <button key={cand.m.musician_id} className="fill-row" onClick={() => add(cand.m, !!cand.unmarked)}>
       <span>{cand.m.display_name} <span className="dim">{cand.m.instrument}</span></span>
       <span className={`small ${cand.noteTone ?? "dim"}`}>{cand.note}</span>
     </button>

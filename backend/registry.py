@@ -15,18 +15,19 @@ so a fresh copy of the backend — which on Vercel is every cold start — skips
 Several copies of the backend can run at once (Vercel starts them on demand). Anything that has to
 be shared between them lives in Postgres: logins, wrong-password counts, and a version number for
 the coordinator workspace, which each copy checks so it reloads after another copy changed it.
-Playground sessions are the exception — they live only in the copy that created them, so a visitor
-whose request lands on a different copy starts over on fresh sample data. That's the playground's
-normal "resets on refresh" behavior arriving early, never a loss of real data.
+Playground sessions are shared the same way when a database is configured (playground_sessions),
+so a visitor's sample-data edits don't vanish when a request lands on a different copy.
 """
 from __future__ import annotations
 
 import hashlib
 import hmac
 import json
+import pickle
 import secrets
 import threading
 import time
+import zlib
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
@@ -92,6 +93,7 @@ class Registry:
         self._pristine: Workspace | None = None
         self._pristine_lock = threading.Lock()
         self._sessions: dict[str, Workspace] = {}
+        self._session_versions: dict[str, int | None] = {}   # playground_sessions version each was loaded at
         self._sessions_lock = threading.Lock()
         self._coordinator: Workspace | None = None
         self._coordinator_version: int | None = None
@@ -144,21 +146,63 @@ class Registry:
                         pd.DataFrame(raw["backups"], columns=BACKUP_COLS))
 
     def playground(self, session_id: str) -> Workspace:
+        """This visitor's sample-data copy. With a database configured it's shared through
+        playground_sessions, so whichever backend copy a request lands on sees the same state —
+        reloaded here when another copy has saved a newer version since this one last looked."""
         pristine = self._get_pristine()
+        shared = self._dsn is not None
+        db_version = None
+        if shared:
+            self._ensure_schema()
+            db_version = persistence.playground_version(self._dsn, session_id)
+
+        with self._sessions_lock:
+            ws = self._sessions.get(session_id)
+            known = self._session_versions.get(session_id)
+        if db_version is not None and (ws is None or known != db_version):
+            row = persistence.load_playground(self._dsn, session_id)
+            if row is not None:
+                known, blob = row
+                ws = pickle.loads(zlib.decompress(blob))
+        elif shared and db_version is None and known is not None:
+            ws = None   # its saved row aged out: start over, same as a refresh would
+        if ws is None:
+            ws, known = Workspace(pristine.data), None
+            ws.draft = pristine.draft
+
         now = time.monotonic()
         with self._sessions_lock:
-            for sid in [sid for sid, ws in self._sessions.items() if now - ws.last_used > PLAYGROUND_IDLE_TTL_S]:
+            for sid in [sid for sid, w in self._sessions.items() if now - w.last_used > PLAYGROUND_IDLE_TTL_S]:
                 del self._sessions[sid]
-            ws = self._sessions.get(session_id)
-            if ws is None:
-                if len(self._sessions) >= MAX_PLAYGROUND_SESSIONS:
+                self._session_versions.pop(sid, None)
+            existing = self._sessions.get(session_id)
+            if existing is not None and self._session_versions.get(session_id) == known:
+                ws = existing   # another request on this copy got here first with the same state
+            else:
+                if session_id not in self._sessions and len(self._sessions) >= MAX_PLAYGROUND_SESSIONS:
                     oldest = min(self._sessions, key=lambda sid: self._sessions[sid].last_used)
                     del self._sessions[oldest]
-                ws = Workspace(pristine.data)
-                ws.draft = pristine.draft
+                    self._session_versions.pop(oldest, None)
                 self._sessions[session_id] = ws
+                self._session_versions[session_id] = known
             ws.last_used = now
             return ws
+
+    def save_playground(self, session_id: str) -> None:
+        """Write this visitor's sample-data copy back to the database after a change, so other
+        backend copies pick it up. A no-op without a database (one process, nothing to share)."""
+        if self._dsn is None:
+            return
+        with self._sessions_lock:
+            ws = self._sessions.get(session_id)
+        if ws is None:
+            return
+        with ws.lock:
+            blob = zlib.compress(pickle.dumps(ws, protocol=pickle.HIGHEST_PROTOCOL), 6)
+        version = persistence.save_playground(self._dsn, session_id, blob, PLAYGROUND_IDLE_TTL_S)
+        with self._sessions_lock:
+            if self._sessions.get(session_id) is ws:
+                self._session_versions[session_id] = version
 
     # ------------------------------------------------------------------ coordinator
 
